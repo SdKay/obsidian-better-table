@@ -1,7 +1,7 @@
 {
-	"name": "obsidian-sample-plugin",
-	"version": "1.0.0",
-	"description": "This is a sample plugin for Obsidian (https://obsidian.md)",
+	"name": "obsidian-better-table",
+	"version": "0.1.0",
+	"description": "Rich tables with merges, styles, and choice columns inside fenced code blocks.",
 	"main": "main.js",
 	"type": "module",
 	"scripts": {

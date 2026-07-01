@@ -1,8 +1,832 @@
-/*
+/* Better Table plugin */
 
-This CSS file will be included with your plugin, and
-available in the app when your plugin is enabled.
+.bt-table-wrapper {
+	overflow-x: auto;
+	margin: 0;
+}
 
-If your plugin does not need CSS, delete this file.
+/* ── Table title ─────────────────────────────────────────────────────────── */
+.bt-table-title {
+	text-align: center;
+	font-size: var(--h4-size, 1.1em);
+	font-weight: var(--font-semibold);
+	color: var(--text-normal);
+	margin: 0 0 -9px;
+	line-height: 1.4;
+}
 
-*/
+/* ── Table footer ────────────────────────────────────────────────────────── */
+.bt-table-footer {
+	text-align: center;
+	margin: 0;
+	font-size: var(--font-ui-small);
+	color: var(--text-muted);
+	line-height: 1.4;
+}
+
+.bt-table-footer-line {
+	margin: 0;
+	padding: 0;
+}
+
+/* ── Editable title / footer (click to edit) ─────────────────────────────── */
+.bt-text-editable {
+	cursor: text;
+}
+
+.bt-text-editable:hover {
+	opacity: 0.75;
+}
+
+.bt-inline-editor {
+	display: inline-block;
+	min-width: 60px;
+	max-width: 90%;
+	padding: 1px 6px;
+	outline: 2px solid var(--interactive-accent);
+	outline-offset: 3px;
+	border-radius: var(--radius-s);
+	background: var(--background-primary);
+	color: var(--text-normal);
+	white-space: pre-wrap;
+	word-break: break-word;
+	cursor: text;
+}
+
+.bt-inline-editor-multi {
+	display: block;
+	width: 100%;
+	max-width: 100%;
+	min-width: unset;
+	resize: vertical;
+	padding: var(--size-4-1) var(--size-4-2);
+	border: none;
+	font-size: var(--font-ui-small);
+	font-family: var(--font-text);
+	text-align: center;
+	box-sizing: border-box;
+}
+
+/* ── Empty-state template banner ─────────────────────────────────────────── */
+.bt-template-banner {
+	display: flex;
+	align-items: center;
+	justify-content: space-between;
+	gap: var(--size-4-3);
+	padding: var(--size-4-2) var(--size-4-3);
+	margin-bottom: var(--size-4-2);
+	background: color-mix(in srgb, var(--interactive-accent) 8%, transparent);
+	border: 1px dashed var(--interactive-accent);
+	border-radius: var(--radius-s);
+	font-size: var(--font-ui-small);
+	color: var(--text-muted);
+}
+
+.bt-template-btn {
+	padding: 3px var(--size-4-3);
+	border-radius: var(--radius-s);
+	background: var(--interactive-accent);
+	color: var(--text-on-accent);
+	font-size: var(--font-ui-small);
+	cursor: pointer;
+	border: none;
+	white-space: nowrap;
+	flex-shrink: 0;
+}
+
+.bt-template-btn:hover {
+	background: var(--interactive-accent-hover);
+}
+
+/* ── Edge-hover add strips (position:fixed, works in all rendering modes) ── */
+.bt-edge-add-row,
+.bt-edge-add-col {
+	position: fixed;
+	z-index: var(--layer-popover);
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	visibility: hidden;
+	pointer-events: none;
+	transition: visibility 0s, opacity 0.1s;
+	opacity: 0;
+	background: color-mix(in srgb, var(--interactive-accent) 12%, transparent);
+	border: 1.5px dashed var(--interactive-accent);
+	border-radius: var(--radius-s);
+	color: var(--interactive-accent);
+	user-select: none;
+}
+
+.bt-edge-add-row.bt-strip-visible,
+.bt-edge-add-col.bt-strip-visible {
+	visibility: visible;
+	pointer-events: auto;
+	opacity: 1;
+}
+
+.bt-edge-add-row {
+	top: var(--strip-top, 0px);
+	left: var(--strip-left, 0px);
+	width: var(--strip-width, 100px);
+	height: 18px;
+	cursor: row-resize;
+}
+
+.bt-edge-add-col {
+	top: var(--strip-top, 0px);
+	left: var(--strip-left, 0px);
+	width: 18px;
+	height: var(--strip-height, 40px);
+	cursor: col-resize;
+}
+
+.bt-edge-add-row:hover,
+.bt-edge-add-col:hover {
+	background: color-mix(in srgb, var(--interactive-accent) 25%, transparent);
+}
+
+.bt-edge-plus {
+	font-size: 13px;
+	font-weight: bold;
+	line-height: 1;
+}
+
+/* ── Drag-reorder handles ────────────────────────────────────────────────── */
+
+/* Column drag handle: top-center of header cell */
+.bt-col-drag-handle {
+	position: absolute;
+	top: 3px;
+	left: 50%;
+	transform: translateX(-50%);
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	padding: 2px 3px;
+	opacity: 0;
+	cursor: grab;
+	border-radius: var(--radius-s);
+	background: var(--background-secondary);
+	border: 1px solid var(--background-modifier-border);
+	z-index: 1;
+}
+
+/* Row drag handle: left-center of first visible data cell */
+.bt-row-drag-handle {
+	position: absolute;
+	left: 3px;
+	top: 50%;
+	transform: translateY(-50%);
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	padding: 3px 2px;
+	opacity: 0;
+	cursor: grab;
+	border-radius: var(--radius-s);
+	background: var(--background-secondary);
+	border: 1px solid var(--background-modifier-border);
+	z-index: 1;
+}
+
+.bt-table .bt-th:hover .bt-col-drag-handle,
+.bt-table .bt-td:hover .bt-row-drag-handle {
+	opacity: 1;
+}
+
+.bt-col-drag-handle:active,
+.bt-row-drag-handle:active {
+	cursor: grabbing;
+}
+
+/* 6-dot drag icon: 2 cols × 3 rows grid */
+.bt-drag-dots {
+	display: grid;
+	grid-template-columns: 3px 3px;
+	grid-template-rows: 3px 3px 3px;
+	gap: 2px;
+}
+
+.bt-drag-dots > span {
+	display: block;
+	width: 3px;
+	height: 3px;
+	border-radius: 50%;
+	background: var(--text-muted);
+}
+
+/* Drop indicators */
+.bt-drop-before {
+	border-top: 2px solid var(--interactive-accent) !important;
+}
+
+/* Dragging state */
+.bt-table .bt-dragging {
+	opacity: 0.4;
+}
+
+.bt-table {
+	border-collapse: collapse;
+	width: 100%;
+	font-size: var(--font-ui-medium);
+}
+
+/* Use .bt-table prefix to outweigh Obsidian theme selectors */
+.bt-table .bt-th,
+.bt-table .bt-td {
+	padding: var(--size-4-2) var(--size-4-3);
+	border: 1px solid var(--table-border-color, var(--background-modifier-border));
+	vertical-align: middle;
+	min-width: var(--bt-col-width, 40px);
+	text-align: center;
+}
+
+.bt-table .bt-th {
+	background-color: var(--background-secondary);
+	font-weight: var(--font-semibold);
+}
+
+/* Column alignment overrides */
+.bt-table .bt-align-left   { text-align: left; }
+.bt-table .bt-align-center { text-align: center; }
+.bt-table .bt-align-right  { text-align: right; }
+
+/* Style rule helpers */
+.bt-table .bt-bold   { font-weight: bold; }
+.bt-table .bt-italic { font-style: italic; }
+
+/* Paragraph tags added by MarkdownRenderer — reset margins and inherit alignment */
+.bt-table .bt-td p,
+.bt-table .bt-th p {
+	margin: 0;
+	text-align: inherit;
+}
+
+/* Wikilink styling inside cells */
+.bt-table .bt-td .internal-link,
+.bt-table .bt-th .internal-link {
+	color: var(--link-color);
+	text-decoration: var(--link-decoration);
+}
+
+.bt-table .bt-td .internal-link:hover,
+.bt-table .bt-th .internal-link:hover {
+	color: var(--link-color-hover);
+}
+
+/* Cell handle (⋮) — right edge of hovered cell, row + column operations */
+.bt-table .bt-td,
+.bt-table .bt-th {
+	position: relative;
+}
+
+/* Editable data cells */
+.bt-table .bt-td-editable {
+	cursor: text;
+}
+
+.bt-table .bt-td-editable:hover {
+	background-color: var(--background-modifier-hover);
+}
+
+/* Editable (untyped) header cells */
+.bt-table .bt-th-editable {
+	cursor: text;
+}
+
+.bt-table .bt-th-editable:hover {
+	background-color: var(--background-modifier-hover);
+}
+
+/* Active edit state */
+.bt-table .bt-editing {
+	padding: 0;
+}
+
+.bt-cell-editor {
+	display: block;
+	width: 100%;
+	min-height: 24px;
+	padding: var(--size-4-2) var(--size-4-3);
+	outline: 2px solid var(--interactive-accent);
+	outline-offset: -2px;
+	background: var(--background-primary);
+	color: var(--text-normal);
+	font-size: var(--font-ui-medium);
+	font-family: var(--font-text);
+	box-sizing: border-box;
+	text-align: inherit;
+	white-space: pre-wrap;
+	word-break: break-word;
+	cursor: text;
+}
+
+
+/* Date cell */
+.bt-date-empty {
+	color: var(--text-faint);
+}
+
+.bt-date-input {
+	width: 100%;
+	height: 100%;
+	padding: var(--size-4-2) var(--size-4-3);
+	border: none;
+	outline: 2px solid var(--interactive-accent);
+	outline-offset: -2px;
+	background: var(--background-primary);
+	color: var(--text-normal);
+	font-size: var(--font-ui-medium);
+	box-sizing: border-box;
+}
+
+/* Hidden column indicator (TODO: width does not respect our CSS due to theme override) */
+.bt-col-indicator {
+	text-align: center;
+	cursor: pointer;
+	background: var(--background-secondary);
+	border: 1px dashed var(--background-modifier-border);
+	color: var(--text-faint);
+	user-select: none;
+}
+
+.bt-col-indicator:hover {
+	color: var(--text-normal);
+	background: var(--background-modifier-hover);
+}
+
+/* Hidden row indicator — thin tr spanning all columns */
+.bt-row-indicator-cell {
+	padding: 2px var(--size-4-3);
+	background: var(--background-secondary);
+	border: 1px dashed var(--background-modifier-border);
+	color: var(--text-faint);
+	font-size: var(--font-ui-smaller);
+	cursor: pointer;
+	user-select: none;
+	text-align: left;
+}
+
+.bt-row-indicator-cell:hover {
+	color: var(--text-normal);
+	background: var(--background-modifier-hover);
+}
+
+.bt-indicator-arrow {
+	font-size: 9px;
+	margin-right: 2px;
+}
+
+.bt-indicator-count {
+	font-size: 10px;
+	font-weight: var(--font-semibold);
+}
+
+.bt-indicator-label {
+	font-size: var(--font-ui-smaller);
+}
+
+/* Cell selection highlight (drag-to-merge) — applies to both data and header cells */
+.bt-table .bt-td.bt-selected,
+.bt-table .bt-th.bt-selected {
+	outline: 2px solid var(--interactive-accent);
+	outline-offset: -2px;
+	background: color-mix(in srgb, var(--interactive-accent) 15%, transparent);
+}
+
+/* Add-row button */
+.bt-add-row {
+	display: flex;
+	align-items: center;
+	gap: var(--size-4-1);
+	padding: var(--size-4-1) var(--size-4-3);
+	color: var(--text-muted);
+	font-size: var(--font-ui-small);
+	cursor: pointer;
+	border-top: 1px dashed var(--background-modifier-border);
+	user-select: none;
+}
+
+.bt-add-row:hover {
+	color: var(--text-normal);
+	background: var(--background-modifier-hover);
+}
+
+/* Wikilink suggest popup — position:fixed so it escapes the table's overflow */
+.suggestion-container.mod-search-suggestion {
+	position: fixed;
+	top: var(--bt-suggest-top, 0px);
+	left: var(--bt-suggest-left, 0px);
+	width: var(--bt-suggest-width, 260px);
+}
+
+/* Typed header cells — indicate they're interactive */
+.bt-table .bt-th-typed {
+	cursor: pointer;
+}
+
+.bt-table .bt-th-typed::after {
+	content: ' ▾';
+	font-size: 0.75em;
+	opacity: 0.45;
+}
+
+.bt-table .bt-th-typed:hover {
+	background-color: var(--background-modifier-hover);
+}
+
+.bt-table .bt-th-typed:focus-visible {
+	outline: 2px solid var(--interactive-accent);
+	outline-offset: -2px;
+}
+
+/* Choice pill badges */
+.bt-choice {
+	display: inline-flex;
+	align-items: center;
+	padding: 2px var(--size-4-2);
+	border-radius: var(--radius-s);
+	font-size: var(--bt-cell-font-size, var(--font-ui-smaller));
+	font-weight: var(--font-medium);
+	background-color: var(--bt-choice-bg, var(--tag-background));
+	color: var(--tag-color);
+	white-space: nowrap;
+}
+
+.bt-choice-unknown {
+	background-color: var(--background-modifier-error);
+	color: var(--text-normal);
+	outline: 1px solid var(--text-error);
+	outline-offset: -1px;
+}
+
+.bt-choice-warn-icon {
+	margin-inline-end: 4px;
+	color: var(--text-error);
+	font-style: normal;
+}
+
+/* ── Unified cell panel (double-click on any cell) ──────────────────────── */
+.bt-cell-panel {
+	position: fixed;
+	top: var(--bt-cp-top, 0px);
+	left: var(--bt-cp-left, 0px);
+	z-index: var(--layer-popover);
+	width: 230px;
+	background: var(--background-primary);
+	border: 1px solid var(--background-modifier-border);
+	border-radius: var(--radius-m);
+	box-shadow: var(--shadow-m);
+	overflow: hidden;
+}
+
+.bt-cp-item {
+	display: flex;
+	align-items: center;
+	gap: 8px;
+	padding: 5px 12px;
+	cursor: pointer;
+	font-size: var(--font-ui-small);
+	color: var(--text-normal);
+	user-select: none;
+}
+
+.bt-cp-item:hover {
+	background: var(--background-modifier-hover);
+}
+
+.bt-cp-danger {
+	color: var(--text-error);
+}
+
+.bt-cp-danger:hover {
+	background: var(--background-modifier-error);
+}
+
+.bt-cp-item-icon {
+	width: 16px;
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	flex-shrink: 0;
+	color: var(--text-muted);
+}
+
+.bt-cp-danger .bt-cp-item-icon {
+	color: var(--text-error);
+}
+
+.bt-cp-divider {
+	height: 1px;
+	background: var(--background-modifier-border);
+	margin: 2px 0;
+}
+
+.bt-cp-style {
+	padding: 7px 12px 5px;
+}
+
+.bt-cp-style-row {
+	display: flex;
+	align-items: center;
+	gap: 8px;
+	padding: 2px 0;
+}
+
+.bt-cp-style-label {
+	flex: 1;
+	font-size: var(--font-ui-smaller);
+	color: var(--text-muted);
+}
+
+.bt-cp-style-footer {
+	display: flex;
+	align-items: center;
+	justify-content: space-between;
+	margin-top: 6px;
+}
+
+.bt-cp-type-row {
+	display: flex;
+	align-items: center;
+	justify-content: space-between;
+	padding: 5px 12px;
+	cursor: pointer;
+	font-size: var(--font-ui-small);
+	color: var(--text-normal);
+	user-select: none;
+}
+
+.bt-cp-type-row:hover {
+	background: var(--background-modifier-hover);
+}
+
+.bt-cp-type-left {
+	display: flex;
+	align-items: center;
+	gap: 8px;
+}
+
+.bt-cp-chevron {
+	color: var(--text-muted);
+	font-size: 14px;
+}
+
+/* ── Cell style panel (double-click on any data cell) ────────────────────── */
+
+.bt-style-panel {
+	position: fixed;
+	top: var(--bt-sp-top, 0px);
+	left: var(--bt-sp-left, 0px);
+	z-index: var(--layer-popover);
+	width: 240px;
+	background: var(--background-primary);
+	border: 1px solid var(--background-modifier-border);
+	border-radius: var(--radius-m);
+	box-shadow: var(--shadow-m);
+	font-size: var(--font-ui-small);
+}
+
+/* Header: title + close (used in single-cell style panel) */
+.bt-sp-header {
+	display: flex;
+	align-items: center;
+	justify-content: space-between;
+	padding: var(--size-4-2) var(--size-4-3);
+	border-bottom: 1px solid var(--background-modifier-border);
+	font-weight: var(--font-semibold);
+}
+
+.bt-sp-body {
+	padding: var(--size-4-2) var(--size-4-3);
+	display: flex;
+	flex-direction: column;
+	gap: var(--size-4-2);
+}
+
+.bt-sp-row {
+	display: flex;
+	align-items: center;
+	gap: var(--size-4-2);
+}
+
+.bt-sp-row label {
+	flex: 1;
+	color: var(--text-muted);
+	font-size: var(--font-ui-smaller);
+}
+
+.bt-sp-color-wrap {
+	display: flex;
+	align-items: center;
+	gap: var(--size-4-1);
+}
+
+.bt-sp-color {
+	width: 28px;
+	height: 24px;
+	padding: 1px;
+	border: 1px solid var(--background-modifier-border);
+	border-radius: var(--radius-s);
+	cursor: pointer;
+	background: transparent;
+}
+
+.bt-sp-color:disabled {
+	opacity: 0.35;
+	cursor: default;
+}
+
+.bt-sp-size-wrap {
+	display: flex;
+	align-items: center;
+	gap: 4px;
+	color: var(--text-muted);
+	font-size: var(--font-ui-smaller);
+}
+
+.bt-sp-size {
+	width: 60px;
+	height: 26px;
+	padding: 0 var(--size-4-1);
+	border: 1px solid var(--background-modifier-border);
+	border-radius: var(--radius-s);
+	background: var(--background-primary);
+	color: var(--text-normal);
+	font-size: var(--font-ui-small);
+	text-align: center;
+}
+
+.bt-sp-footer {
+	padding: var(--size-4-2) var(--size-4-3);
+	border-top: 1px solid var(--background-modifier-border);
+	display: flex;
+	align-items: center;
+	justify-content: space-between;
+}
+
+/* Clear format — subtle pill button */
+.bt-cell-panel .bt-sp-clear-btn,
+.bt-style-panel .bt-sp-clear-btn {
+	padding: 4px 12px;
+	border-radius: 100px;
+	background: var(--background-modifier-hover);
+	border: none;
+	color: var(--text-muted);
+	font-size: var(--font-ui-small);
+	cursor: pointer;
+}
+
+.bt-cell-panel .bt-sp-clear-btn:hover,
+.bt-style-panel .bt-sp-clear-btn:hover {
+	color: var(--text-error);
+	background: color-mix(in srgb, var(--text-error) 12%, transparent);
+}
+
+/* Apply — rounded pill, accent color */
+.bt-cell-panel .bt-sp-apply,
+.bt-style-panel .bt-sp-apply {
+	padding: 4px 14px;
+	border-radius: 100px;
+	background: var(--interactive-accent);
+	color: var(--text-on-accent);
+	font-size: var(--font-ui-small);
+	font-weight: var(--font-medium);
+	cursor: pointer;
+	border: none;
+	letter-spacing: 0.01em;
+}
+
+.bt-cell-panel .bt-sp-apply:hover,
+.bt-style-panel .bt-sp-apply:hover {
+	background: var(--interactive-accent-hover);
+}
+
+/* Error display */
+.bt-error {
+	padding: var(--size-4-2) var(--size-4-3);
+	background-color: var(--background-modifier-error);
+	color: var(--text-error);
+	border-radius: var(--radius-s);
+	font-family: var(--font-monospace);
+	font-size: var(--font-ui-small);
+}
+
+/* Settings — built-in type chips */
+.bt-builtin-info {
+	display: flex;
+	flex-direction: column;
+	gap: var(--size-4-2);
+	margin-bottom: var(--size-4-4);
+}
+
+.bt-builtin-row {
+	display: flex;
+	align-items: center;
+	gap: var(--size-4-3);
+	flex-wrap: wrap;
+}
+
+.bt-builtin-id {
+	min-width: 100px;
+	font-size: var(--font-ui-small);
+	color: var(--text-muted);
+	font-family: var(--font-monospace);
+}
+
+.bt-builtin-pills {
+	display: flex;
+	gap: var(--size-4-1);
+	flex-wrap: wrap;
+}
+
+.bt-builtin-pill {
+	pointer-events: none;
+}
+
+/* Settings — custom types */
+.bt-custom-types-list {
+	display: flex;
+	flex-direction: column;
+	gap: var(--size-4-2);
+}
+
+.bt-type-block {
+	padding: var(--size-4-3);
+	border: 1px solid var(--background-modifier-border);
+	border-radius: var(--radius-m);
+}
+
+.bt-type-divider {
+	border: none;
+	border-top: 1px solid var(--background-modifier-border);
+	margin: var(--size-4-2) 0;
+}
+
+.bt-options-header {
+	font-size: var(--font-ui-smaller);
+	color: var(--text-muted);
+	margin: var(--size-4-2) 0 var(--size-4-1);
+}
+
+.bt-options-list {
+	display: flex;
+	flex-direction: column;
+	gap: var(--size-4-1);
+	margin-bottom: var(--size-4-2);
+}
+
+.bt-option-row {
+	display: flex;
+	align-items: center;
+	gap: var(--size-4-2);
+}
+
+.bt-opt-text {
+	flex: 1;
+	min-width: 80px;
+	max-width: 160px;
+	height: 28px;
+	padding: 0 var(--size-4-2);
+	border: 1px solid var(--background-modifier-border);
+	border-radius: var(--radius-s);
+	background: var(--background-primary);
+	color: var(--text-normal);
+	font-size: var(--font-ui-small);
+}
+
+.bt-opt-color-wrap {
+	display: flex;
+	align-items: center;
+}
+
+.bt-opt-color {
+	width: 28px;
+	height: 28px;
+	padding: 2px;
+	border: 1px solid var(--background-modifier-border);
+	border-radius: var(--radius-s);
+	cursor: pointer;
+	background: transparent;
+}
+
+.bt-opt-delete {
+	width: 24px;
+	height: 24px;
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	border: none;
+	background: transparent;
+	color: var(--text-faint);
+	cursor: pointer;
+	border-radius: var(--radius-s);
+	font-size: 16px;
+	line-height: 1;
+	padding: 0;
+}
+
+.bt-opt-delete:hover {
+	color: var(--text-error);
+	background: var(--background-modifier-error);
+}

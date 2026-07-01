@@ -1,92 +1,257 @@
-# Obsidian Sample Plugin
+<div align="center">
 
-This is a sample plugin for Obsidian (https://obsidian.md).
+<img src="./docs/banner.png" alt="Better Table" />
 
-This project uses TypeScript to provide type checking and documentation.
-The repo depends on the latest plugin API (obsidian.d.ts) in TypeScript Definition format, which contains TSDoc comments describing what it does.
+<p>
+  <b>🔀 Merge &nbsp;·&nbsp; 🎨 Style &nbsp;·&nbsp; 🏷️ Type &nbsp;·&nbsp; 🔗 Wikilink &nbsp;·&nbsp; ↕️ Reorder</b>
+</p>
 
-This sample plugin demonstrates some of the basic functionality the plugin API can do.
+<p>
+  <a href="https://github.com/SdKay/obsidian-better-table/releases/latest">
+    <img src="https://img.shields.io/github/v/release/SdKay/obsidian-better-table?style=flat-square&color=7c3aed" alt="Latest release" />
+  </a>
+  <a href="https://github.com/SdKay/obsidian-better-table/releases">
+    <img src="https://img.shields.io/github/downloads/SdKay/obsidian-better-table/total?style=flat-square&color=brightgreen" alt="Total downloads" />
+  </a>
+  <a href="LICENSE">
+    <img src="https://img.shields.io/github/license/SdKay/obsidian-better-table?style=flat-square" alt="License" />
+  </a>
+  <a href="https://obsidian.md">
+    <img src="https://img.shields.io/badge/Obsidian-%3E%3D1.4.10-7c3aed?style=flat-square&logo=obsidian&logoColor=white" alt="Obsidian compatibility" />
+  </a>
+</p>
 
-- Adds a ribbon icon, which shows a Notice when clicked.
-- Adds a command "Open modal (simple)" which opens a Modal.
-- Adds a plugin setting tab to the settings page.
-- Registers a global click event and outputs a Notice on click.
-- Registers a global interval which logs 'setInterval' to the console.
+<p>
+  <a href="#-why-better-table">Why?</a> ·
+  <a href="#-demo">Demo</a> ·
+  <a href="#-format">Format</a> ·
+  <a href="#-features">Features</a> ·
+  <a href="#-installation">Install</a> ·
+  <a href="README_CN.md">中文</a>
+</p>
 
-## First time developing plugins?
+<p>
+  <img src="docs/wechat-qrcode.jpg" alt="WeChat public account" width="120" />
+  <br/><sub>Follow on WeChat for more Obsidian plugins &amp; tools</sub>
+</p>
 
-Quick starting guide for new plugin devs:
+</div>
 
-- Check if [someone already developed a plugin for what you want](https://obsidian.md/plugins)! There might be an existing plugin similar enough that you can partner up with.
-- Make a copy of this repo as a template with the "Use this template" button (login to GitHub if you don't see it).
-- Clone your repo to a local development folder. For convenience, you can place this folder in your `.obsidian/plugins/your-plugin-name` folder.
-- Install NodeJS, then run `npm i` in the command line under your repo folder.
-- Run `npm run dev` to compile your plugin from `src/main.ts` to `main.js`.
-- Make changes to `src/main.ts` (or create new `.ts` files). Those changes should be automatically compiled into `main.js`.
-- Reload Obsidian to load the new version of your plugin.
-- Enable plugin in settings window.
-- For updates to the Obsidian API run `npm update` in the command line under your repo folder.
+> **Obsidian-only plugin.** The `better-table` fenced code block is a custom Obsidian renderer — it will not display in standard Markdown editors, GitHub previews, or any non-Obsidian environment.
 
-## Releasing new releases
+Rich, interactive tables for Obsidian — with **cell merges**, inline editing, wikilink autocomplete, typed columns, title & footer, drag-to-reorder, and more. Everything that native Obsidian tables and most community table plugins simply can't do.
 
-- Update your `manifest.json` with your new version number, such as `1.0.1`, and the minimum Obsidian version required for your latest release.
-- Update your `versions.json` file with `"new-plugin-version": "minimum-obsidian-version"` so older versions of Obsidian can download an older version of your plugin that's compatible.
-- Create new GitHub release using your new version number as the "Tag version". Use the exact version number, don't include a prefix `v`. See here for an example: https://github.com/obsidianmd/obsidian-sample-plugin/releases
-- Upload the files `manifest.json`, `main.js`, `styles.css` as binary attachments. Note: The manifest.json file must be in two places, first the root path of your repository and also in the release.
-- Publish the release.
+---
 
-> You can simplify the version bump process by running `npm version patch`, `npm version minor` or `npm version major` after updating `minAppVersion` manually in `manifest.json`.
-> The command will bump version in `manifest.json` and `package.json`, and add the entry for the new version to `versions.json`
+## Why Better Table?
 
-## Adding your plugin to the community plugin list
+Obsidian's built-in tables are plain GFM — no merges, no types, no interactive editing. Most community table plugins work around the same limitation. Better Table takes a different approach: a dedicated fenced code block that gives you a **spreadsheet-like experience inside your notes**.
 
-- Check the [plugin guidelines](https://docs.obsidian.md/Plugins/Releasing/Plugin+guidelines).
-- Publish an initial version.
-- Make sure you have a `README.md` file in the root of your repo.
-- Make a pull request at https://github.com/obsidianmd/obsidian-releases to add your plugin.
+| Pain point | Native tables | Better Table |
+| --- | --- | --- |
+| Cell merging (rowspan / colspan) | ✗ | ✓ |
+| Inline click-to-edit | ✗ | ✓ |
+| `[[wikilink]]` autocomplete in cells | ✗ | ✓ |
+| Typed columns (status, priority…) | ✗ | ✓ |
+| Per-cell style (bg, color, font size) | ✗ | ✓ |
+| Table title & footer notes | ✗ | ✓ |
+| Drag to reorder rows / columns | ✗ | ✓ |
+| Add / hide / delete rows & columns | ✗ | ✓ |
 
-## How to use
+---
 
-- Clone this repo.
-- Make sure your NodeJS is at least v18 (`node --version`).
-- `npm i` to install dependencies.
-- `npm run dev` to start compilation in watch mode.
+## Demo
 
-## Manually installing the plugin
+**1 · Quick start from template** — empty block → insert template → edit title
 
-- Copy over `main.js`, `styles.css`, `manifest.json` to your vault `VaultFolder/.obsidian/plugins/your-plugin-id/`.
+<!-- record: open empty better-table block, click Insert template, single-click title to rename (~6s) -->
+![Quick start demo](docs/demo-01-template.gif)
 
-## Improve code quality with eslint
+**2 · Merge cells** — drag-select → Merge in popup
 
-- [ESLint](https://eslint.org/) is a tool that analyzes your code to quickly find problems. You can run ESLint against your plugin to find common bugs and ways to improve your code.
-- This project already has eslint preconfigured, you can invoke a check by running`npm run lint`
-- Together with a custom eslint [plugin](https://github.com/obsidianmd/eslint-plugin) for Obsidan specific code guidelines.
-- A GitHub action is preconfigured to automatically lint every commit on all branches.
+<!-- record: drag across 3 cells, popup appears, click Merge, result visible (~6s) -->
+![Merge cells demo](docs/demo-02-merge.gif)
 
-## Funding URL
+**3 · Typed columns & cell style** — click to switch value, double-click to set bg / font size
 
-You can include funding URLs where people who use your plugin can financially support it.
+<!-- record: click a task-status cell → pick "done", then double-click another cell → set bg color + size → Apply (~7s) -->
+![Typed columns and style demo](docs/demo-03-style.gif)
 
-The simple way is to set the `fundingUrl` field to your link in your `manifest.json` file:
+**4 · Wikilink autocomplete** — `[[` triggers file suggest, `#` for headings
 
-```json
-{
-	"fundingUrl": "https://buymeacoffee.com"
-}
+<!-- record: single-click a cell, type [[, select a file, type #, select a heading (~6s) -->
+![Wikilink autocomplete demo](docs/demo-04-wikilink.gif)
+
+**5 · Drag to reorder & row/column ops** — ⠿ handle + double-click menu
+
+<!-- record: drag a row handle to reorder, then double-click a cell → insert row below (~6s) -->
+![Reorder and ops demo](docs/demo-05-reorder.gif)
+
+**6 · Title & footer** — click to edit inline, Shift+Enter for multi-line footer
+
+<!-- record: click title to rename, click footer → add a second line with Enter → Shift+Enter to save (~6s) -->
+![Title and footer demo](docs/demo-06-title-footer.gif)
+
+---
+
+## Format
+
+````markdown
+```better-table
+---
+title: Project tracker
+columns:
+  - { name: Task,     width: 200 }
+  - { name: Status,   type: task-status }
+  - { name: Owner }
+  - { name: Priority, type: priority, align: center }
+merges:
+  - A3:A4
+styles:
+  - { target: "1:1", bold: true, bg: "#e8f0fe" }
+  - { target: "B*",  bg: "#e6f4ea" }
+  - { target: "D2",  size: 14, color: "#c0392b" }
+footer: "Updated weekly · click any cell to edit"
+---
+| Task     | Status  | Owner        | Priority |
+| -------- | ------- | ------------ | -------- |
+| Design   | done    | [[Alice]]    | high     |
+| Build    | pending | [[teammate]] | medium   |
+| Test     | todo    |              | low      |
+| Deploy   | todo    |              | low      |
+```
+````
+
+### Coordinate system
+
+Excel-style, 1-indexed. Row 1 = header row.
+
+| Notation | Meaning |
+| -------- | ------- |
+| `A1`     | Column A, row 1 (header) |
+| `A1:B3`  | Cell range |
+| `B*`     | Entire column B |
+| `*2`     | Entire row 2 |
+| `1:3`    | Row range |
+
+---
+
+## Features
+
+### Title & footer
+Add a table title above and notes below using YAML fields. Both support inline Markdown (bold, italic, wikilinks). Click either to edit inline.
+
+```yaml
+title: My Project Board
+footer: "* estimates only · last updated 2025-01"
 ```
 
-If you have multiple URLs, you can also do:
+Multiple footer lines via YAML array. Shift+Enter adds a line break while editing.
 
-```json
-{
-	"fundingUrl": {
-		"Buy Me a Coffee": "https://buymeacoffee.com",
-		"GitHub Sponsor": "https://github.com/sponsors",
-		"Patreon": "https://www.patreon.com/"
-	}
-}
+### Cell merging
+Define any rectangular merge region in YAML. During interactive editing, drag across cells and click **Merge** in the popup. The plugin automatically expands to the minimum valid bounding box if a new merge partially overlaps an existing one.
+
+### Inline editing
+Single-click any cell to open an inline editor. Supports plain text, wikilinks, bold/italic, and all inline Markdown. `Enter` saves; `Escape` cancels.
+
+### Wikilink autocomplete
+Type `[[` inside any cell editor to trigger Obsidian's native file suggest:
+- `[[filename` — file search
+- `[[filename#heading` — heading links
+- `[[filename#^blockid` — block references
+- `[[filename|alias` — link aliases
+
+### Typed columns
+Attach a type to any column. Values render as colored pill badges. Single-click a cell to choose from the dropdown — no typing needed.
+
+**Built-in types:**
+
+| Type | Values |
+| ---- | ------ |
+| `task-status` | todo · pending · done · cancel |
+| `priority` | high · medium · low |
+| `boolean` | yes · no |
+| `rating` | ★ through ★★★★★ |
+| `effort` | XS · S · M · L · XL |
+| `approval` | approved · pending · rejected |
+
+Custom types can be defined in **Settings → Better Table**.
+
+### Double-click panel
+Double-clicking any cell (or right-clicking a header) opens a unified panel with three sections:
+
+1. **Cell operations** — insert/delete/hide rows & columns; unmerge merged cells. For merged cells the range covers all spanned rows/columns automatically.
+2. **Style** — set background color, text color, and font size with live preview. Cancel to restore; Apply to persist. Clear format removes all cell-level styles.
+3. **Change type** — header cells only; cascading submenu to switch the column type.
+
+**Ctrl+drag** to select a range without opening the panel (for visual inspection). When the popup does appear after dragging, it also shows **Merge cells** as the first action.
+
+### Style rules
+Apply styles in YAML to any target: single cells, ranges, entire rows, or columns.
+
+```yaml
+styles:
+  - { target: "1:1",   bold: true, bg: "#f0f4ff" }
+  - { target: "B*",    bg: "#e6f4ea" }
+  - { target: "A2:A5", color: "#555", size: 13 }
 ```
 
-## API Documentation
+Supported properties: `bg`, `color`, `bold`, `italic`, `size` (px).
 
-See https://docs.obsidian.md
+### Drag to reorder
+Six-dot drag handles appear on hover — top of header cells for columns, left side of data cells for rows. Merge regions fully contained within the moved row/column travel with it; cross-boundary merges stay in place.
+
+### Edge strips
+Hover near the bottom edge of the table to reveal a **+** strip for appending a new row. Hover near the right edge to append a new column.
+
+---
+
+## Installation
+
+1. Open **Settings → Community plugins → Browse**.
+2. Search for **Better Table** and install.
+3. Enable the plugin.
+
+Or install manually: copy `main.js`, `manifest.json`, and `styles.css` to `<vault>/.obsidian/plugins/better-table/`.
+
+Minimum Obsidian version: **1.4.10**
+
+---
+
+## Support & feedback
+
+Issues and feature requests: [GitHub Issues](https://github.com/SdKay/obsidian-better-table/issues)
+
+---
+
+## Known issues
+
+- **Hidden column indicator width**: the `▶N` indicator column expands to fill available space in some themes due to theme CSS overriding `width` on `th` elements.
+
+## Planned
+
+- **Row-direction tables** (`direction: row`): attach types to rows instead of columns.
+- **Custom choice type UI**: visual add/remove UI for custom types, replacing the raw-JSON textarea.
+
+---
+
+## Development
+
+```bash
+npm install
+npm run dev        # watch mode — rebuilds on change
+npm run build      # production build (tsc + minified main.js)
+npm run lint       # ESLint with obsidianmd rules
+```
+
+Deploy to vault after build:
+
+```bash
+cp main.js manifest.json styles.css "<vault>/.obsidian/plugins/better-table/"
+```
+
+---
+
+## Star history
+
+[![Star History Chart](https://api.star-history.com/svg?repos=SdKay/obsidian-better-table&type=Date)](https://star-history.com/#SdKay/obsidian-better-table&Date)

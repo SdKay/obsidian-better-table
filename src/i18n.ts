@@ -1,0 +1,128 @@
+import { getLanguage } from 'obsidian';
+
+export function isZh(): boolean {
+	return getLanguage().startsWith('zh');
+}
+
+const EN = {
+	// Cell operations
+	unmergeCells:    'Unmerge cells',
+	insertRowAbove:  'Insert row above',
+	insertRowBelow:  'Insert row below',
+	insertColBefore: 'Insert column before',
+	insertColAfter:  'Insert column after',
+	mergeCells:      'Merge cells',
+	hideRow:         'Hide row',
+	hideColumn:      'Hide column',
+	deleteRow:       'Delete row',
+	deleteColumn:    'Delete column',
+
+	// Style panel
+	background:  'Background',
+	textColor:   'Text color',
+	fontSize:    'Font size',
+	clearFormat: 'Clear format',
+	apply:       'Apply',
+
+	// Type section
+	noType:  'No type',
+	setType: 'Set type',
+
+	// Template banner
+	templatePreview: 'Template preview — click Insert to start editing',
+	insertTemplate:  'Insert template',
+
+	// Editable title / footer
+	clickToEditTitle:  'Click to edit title',
+	clickToEditFooter: 'Click to edit footer',
+
+	// Drag handles
+	dragReorderCol: 'Drag to reorder column',
+	dragReorderRow: 'Drag to reorder row',
+
+	// Choice pill
+	changeValue: 'Change value',
+
+	// Row/col actions menu
+	rowAndColActions: 'Row and column actions',
+} as const;
+
+const ZH: { [K in keyof typeof EN]: string } = {
+	unmergeCells:    '取消合并',
+	insertRowAbove:  '在上方插入行',
+	insertRowBelow:  '在下方插入行',
+	insertColBefore: '在左侧插入列',
+	insertColAfter:  '在右侧插入列',
+	mergeCells:      '合并单元格',
+	hideRow:         '隐藏行',
+	hideColumn:      '隐藏列',
+	deleteRow:       '删除行',
+	deleteColumn:    '删除列',
+
+	background:  '背景色',
+	textColor:   '字体颜色',
+	fontSize:    '字体大小',
+	clearFormat: '清除格式',
+	apply:       '应用',
+
+	noType:  '无类型',
+	setType: '设置类型',
+
+	templatePreview: '模板预览 — 点击"插入"开始编辑',
+	insertTemplate:  '插入模板',
+
+	clickToEditTitle:  '点击编辑标题',
+	clickToEditFooter: '点击编辑备注',
+
+	dragReorderCol: '拖拽调整列顺序',
+	dragReorderRow: '拖拽调整行顺序',
+
+	changeValue: '切换值',
+
+	rowAndColActions: '行列操作',
+};
+
+export function t(key: keyof typeof EN): string {
+	return (isZh() ? ZH : EN)[key];
+}
+
+// ── Dynamic label helpers ─────────────────────────────────────────────────────
+
+export function rowRangeLabel(r1: number, r2: number): string {
+	if (isZh()) return r1 === r2 ? `第${r1 + 1}行` : `第${r1 + 1}–${r2 + 1}行`;
+	return r1 === r2 ? 'row' : `rows ${r1 + 1}–${r2 + 1}`;
+}
+
+export function colRangeLabel(c1: number, c2: number, letter: (i: number) => string): string {
+	if (isZh()) return c1 === c2 ? `${letter(c1)}列` : `${letter(c1)}–${letter(c2)}列`;
+	return c1 === c2 ? 'column' : `cols ${letter(c1)}–${letter(c2)}`;
+}
+
+export function hideRowsLabel(r1: number, r2: number): string {
+	return isZh()
+		? `隐藏${rowRangeLabel(r1, r2)}`
+		: `Hide ${rowRangeLabel(r1, r2)}`;
+}
+
+export function hideColsLabel(c1: number, c2: number, letter: (i: number) => string): string {
+	return isZh()
+		? `隐藏${colRangeLabel(c1, c2, letter)}`
+		: `Hide ${colRangeLabel(c1, c2, letter)}`;
+}
+
+export function deleteRowsLabel(r1: number, r2: number): string {
+	return isZh()
+		? `删除${rowRangeLabel(r1, r2)}`
+		: `Delete ${rowRangeLabel(r1, r2)}`;
+}
+
+export function deleteColsLabel(c1: number, c2: number, letter: (i: number) => string): string {
+	return isZh()
+		? `删除${colRangeLabel(c1, c2, letter)}`
+		: `Delete ${colRangeLabel(c1, c2, letter)}`;
+}
+
+export function typeLabel(currentType?: string): string {
+	if (!currentType) return t('setType');
+	return isZh() ? `类型：${currentType}` : `Type: ${currentType}`;
+}

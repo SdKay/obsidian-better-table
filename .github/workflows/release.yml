@@ -1,50 +1,90 @@
-name: Release Obsidian plugin
+name: Release
 
+# Trigger on any tag push — tag name should match the version in manifest.json
+# e.g.  git tag 0.1.1 && git push origin 0.1.1
 on:
-    push:
-        tags:
-            - '*'
+  push:
+    tags:
+      - '*'
+
+permissions:
+  contents: write
+  id-token: write
+  attestations: write
 
 jobs:
-    build:
-        runs-on: ubuntu-latest
-        permissions:
-            contents: write
-            id-token: write
-            attestations: write
-        steps:
-            - uses: actions/checkout@v6
+  release:
+    runs-on: ubuntu-latest
 
-            - name: Use Node.js
-              uses: actions/setup-node@v6
-              with:
-                  node-version: 24
-                  cache: 'npm'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
-            - name: Build plugin
-              run: |
-                  npm ci
-                  npm run build
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
 
-            - name: Check for optional styles
-              id: styles
-              run: |
-                  [ -f styles.css ] && echo "exists=true" >> "$GITHUB_OUTPUT" || echo "exists=false" >> "$GITHUB_OUTPUT"
+      - name: Install dependencies
+        run: npm ci
 
-            - name: Attest build provenance
-              uses: actions/attest@v4
-              with:
-                  subject-path: |
-                      main.js
-                      ${{ steps.styles.outputs.exists == 'true' && 'styles.css' || '' }}
+      - name: Build
+        run: npm run build
 
-            - name: Create release
-              env:
-                  GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-              run: |
-                  tag="${GITHUB_REF#refs/tags/}"
+      - name: Generate changelog
+        id: changelog
+        run: |
+          PREV=$(git describe --tags --abbrev=0 HEAD^ 2>/dev/null || echo "")
+          RANGE="${PREV:+${PREV}..}HEAD"
 
-                  gh release create "$tag" \
-                    --title="$tag" \
-                    --draft \
-                    main.js manifest.json ${{ steps.styles.outputs.exists == 'true' && 'styles.css' || '' }}
+          extract() {
+            git log $RANGE --pretty=format:"- %s" | grep -E "^- $1" | \
+              sed -E "s/^- [a-z]+(\([^)]+\))?: /- /" || true
+          }
+
+          FEAT=$(extract "feat")
+          FIX=$(extract "fix")
+          PERF=$(extract "perf")
+          REF=$(extract "refactor")
+          STYLE=$(extract "style")
+          DOCS=$(extract "docs")
+          OTHER=$(git log $RANGE --pretty=format:"- %s" \
+            | grep -Ev "^- (feat|fix|perf|refactor|style|docs|chore|build|ci|test|Merge)" || true)
+
+          BODY=""
+          [ -n "$FEAT" ]  && BODY+=$'## 🚀 New features\n'"$FEAT"$'\n\n'
+          [ -n "$FIX" ]   && BODY+=$'## 🐛 Bug fixes\n'"$FIX"$'\n\n'
+          [ -n "$PERF" ]  && BODY+=$'## ⚡ Performance\n'"$PERF"$'\n\n'
+          [ -n "$REF" ]   && BODY+=$'## ♻️ Refactor\n'"$REF"$'\n\n'
+          [ -n "$STYLE" ] && BODY+=$'## 🎨 UI / styles\n'"$STYLE"$'\n\n'
+          [ -n "$DOCS" ]  && BODY+=$'## 📝 Documentation\n'"$DOCS"$'\n\n'
+          [ -n "$OTHER" ] && BODY+=$'## 🔧 Other changes\n'"$OTHER"$'\n\n'
+
+          if [ -n "$PREV" ]; then
+            REPO="${{ github.repository }}"
+            BODY+="**Full changelog**: https://github.com/${REPO}/compare/${PREV}...${{ github.ref_name }}"
+          fi
+
+          {
+            echo 'body<<EOF'
+            echo "$BODY"
+            echo EOF
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Attest release assets
+        uses: actions/attest-build-provenance@v2
+        with:
+          subject-path: |
+            main.js
+            styles.css
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          name: ${{ github.ref_name }}
+          body: ${{ steps.changelog.outputs.body }}
+          files: |
+            main.js
+            manifest.json
+            styles.css

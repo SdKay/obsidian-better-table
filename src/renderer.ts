@@ -1,0 +1,1416 @@
+import { App, Component, MarkdownRenderer, Menu, setIcon } from 'obsidian';
+import {
+	t, typeLabel,
+	hideRowsLabel, hideColsLabel, deleteRowsLabel, deleteColsLabel,
+} from './i18n';
+import { WikilinkInputSuggest } from './wikilinkInputSuggest';
+import type { ColumnDef, MergeRange, StyleRule, TableModel } from './model';
+import type { ChoiceRegistry } from './choiceRegistry';
+import type { StructuralOp } from './operations';
+import { colLetterToIndex, colIndexToLetter, parseCellCoord } from './utils';
+
+type CellChangeHandler    = (row: number, col: number, value: string) => Promise<void>;
+type ColTypeChangeHandler = (colIdx: number, newType: string | undefined) => Promise<void>;
+type StructuralOpHandler  = (op: StructuralOp) => Promise<void>;
+
+/** Special column types handled with dedicated editors (not choice dropdowns). */
+const SPECIAL_TYPES = new Set(['date']);
+
+export async function renderTable(
+	model: TableModel,
+	getRegistry: () => ChoiceRegistry,
+	container: HTMLElement,
+	app: App,
+	sourcePath: string,
+	component: Component,
+	onCellChange?: CellChangeHandler,
+	onColTypeChange?: ColTypeChangeHandler,
+	onStructuralOp?: StructuralOpHandler,
+): Promise<void> {
+	if (model.columns.length === 0) return;
+
+	// Snapshot for rendering; getRegistry used in event handlers for fresh lookups
+	const registry = getRegistry();
+
+	// Title
+	if (model.title) {
+		const titleEl = container.createDiv({ cls: 'bt-table-title' });
+		titleEl.createSpan({ text: model.title });
+		if (onStructuralOp) {
+			titleEl.addClass('bt-text-editable');
+			titleEl.setAttribute('aria-label', t('clickToEditTitle'));
+			titleEl.setAttribute('data-tooltip-position', 'top');
+			titleEl.addEventListener('click', () => {
+				if (titleEl.hasClass('bt-editing')) return;
+				enterLineEdit(titleEl, model.title ?? '', newVal => {
+					void onStructuralOp({ type: 'set-title', title: newVal || undefined });
+				});
+			});
+		}
+	}
+
+	const occupied = buildOccupied(model);
+	const wrapper = container.createDiv({ cls: 'bt-table-wrapper' });
+	const table = wrapper.createEl('table', { cls: 'bt-table' });
+
+	// ── Drag-to-select for cell merging ──────────────────────────────────────
+	// sel tracks the current drag selection; hasMoved prevents click handlers
+	// from opening edit mode when the user dragged across cells.
+	const sel = {
+		start:    null as { row: number; col: number } | null,
+		end:      null as { row: number; col: number } | null,
+		dragging: false,
+		hasMoved: false,
+		ctrlHeld: false,
+	};
+
+	const inSel = (row: number, col: number): boolean => {
+		if (!sel.start || !sel.end) return false;
+		const r1 = Math.min(sel.start.row, sel.end.row);
+		const r2 = Math.max(sel.start.row, sel.end.row);
+		const c1 = Math.min(sel.start.col, sel.end.col);
+		const c2 = Math.max(sel.start.col, sel.end.col);
+		return row >= r1 && row <= r2 && col >= c1 && col <= c2;
+	};
+
+	const clearSel = () => {
+		sel.start = sel.end = null;
+		sel.hasMoved = false;
+		table.querySelectorAll<HTMLElement>('.bt-selected').forEach(e => e.removeClass('bt-selected'));
+	};
+
+	const updateHighlights = () => {
+		table.querySelectorAll<HTMLElement>('[data-row][data-col]').forEach(e => {
+			const row = parseInt(e.dataset.row ?? '-1');
+			const col = parseInt(e.dataset.col ?? '-1');
+			if (row >= 0 && col >= 0) e.toggleClass('bt-selected', inSel(row, col));
+		});
+	};
+
+	let selectionPanel: HTMLElement | null = null;
+	const removeSelectionPanel = () => { selectionPanel?.remove(); selectionPanel = null; };
+
+	const showSelectionPanel = () => {
+		if (!sel.start || !sel.end || !onStructuralOp) return;
+		removeSelectionPanel();
+
+		const r1 = Math.min(sel.start.row, sel.end.row);
+		const r2 = Math.max(sel.start.row, sel.end.row);
+		const c1 = Math.min(sel.start.col, sel.end.col);
+		const c2 = Math.max(sel.start.col, sel.end.col);
+
+		const selectedEls = Array.from(
+			table.querySelectorAll<HTMLElement>('[data-row][data-col]'),
+		).filter(cell => {
+			const row = parseInt(cell.dataset.row ?? '-1');
+			const col = parseInt(cell.dataset.col ?? '-1');
+			return row >= r1 && row <= r2 && col >= c1 && col <= c2;
+		});
+
+		const rangeTarget = (r1 === r2 && c1 === c2)
+			? `${colIndexToLetter(c1)}${r1 + 1}`
+			: `${colIndexToLetter(c1)}${r1 + 1}:${colIndexToLetter(c2)}${r2 + 1}`;
+
+		const anchor = selectedEls[selectedEls.length - 1] ?? table;
+		const existingStyle = (() => {
+			const s: { bg?: string; color?: string; size?: number } = {};
+			for (const rule of model.styles) {
+				if (!matchTarget(r1, c1, rule.target)) continue;
+				if (rule.bg)   s.bg    = rule.bg;
+				if (rule.color) s.color = rule.color;
+				if (rule.size)  s.size  = rule.size;
+			}
+			return s;
+		})();
+
+		const isHeaderSel = r1 === 0 && r2 === 0;
+		selectionPanel = openCellPanel({
+			anchor,
+			els: selectedEls,
+			styleTarget: rangeTarget,
+			existingStyle,
+			showTextColor: true,
+			cellOps: [
+				{ icon: 'combine', label: t('mergeCells'),
+					action: () => void onStructuralOp({ type: 'merge-cells', startRow: r1, startCol: c1, endRow: r2, endCol: c2 }) },
+				// Row ops only for data selections (header row cannot be hidden/deleted)
+				...(!isHeaderSel ? [
+					{ icon: 'eye-off' as const, label: hideRowsLabel(r1, r2),
+						action: () => { for (let ri = r1; ri <= r2; ri++) void onStructuralOp({ type: 'hide-row', rowIdx: ri }); } },
+					{ icon: 'trash' as const, label: deleteRowsLabel(r1, r2), danger: true as const,
+						action: () => { for (let ri = r2; ri >= r1; ri--) void onStructuralOp({ type: 'delete-row', rowIdx: ri }); } },
+				] : []),
+				{ icon: 'eye-off', label: hideColsLabel(c1, c2, colIndexToLetter),
+					action: () => { for (let ci = c1; ci <= c2; ci++) void onStructuralOp({ type: 'hide-col', colIdx: ci }); } },
+				{ icon: 'trash', label: deleteColsLabel(c1, c2, colIndexToLetter), danger: true,
+					action: () => { for (let ci = c2; ci >= c1; ci--) void onStructuralOp({ type: 'delete-col', colIdx: ci }); } },
+			],
+			onApplyStyle: (bg, color, size) => void onStructuralOp({ type: 'set-range-style', target: rangeTarget, bg, color, size }),
+			onClose: () => { clearSel(); selectionPanel = null; },
+		});
+	};
+
+	// Delegate drag events on tbody so we don't add listeners to every cell
+	// (mousedown/mouseover use the cell's data-row/col attributes)
+
+	const thead = table.createEl('thead');
+	const headerTr = thead.createEl('tr');
+	await renderRow(headerTr, 0, model, occupied, registry, getRegistry, app, sourcePath, component, true, onCellChange, onColTypeChange, onStructuralOp);
+
+	const tbody = table.createEl('tbody');
+
+	tbody.addEventListener('mousedown', (evt: MouseEvent) => {
+		if (evt.button !== 0) return;
+		// Don't start merge selection when clicking a drag handle
+		if ((evt.target as HTMLElement).closest('.bt-row-drag-handle')) return;
+		const td = (evt.target as HTMLElement).closest<HTMLElement>('td[data-row][data-col]');
+		if (!td) return;
+		const row = parseInt(td.dataset.row ?? '-1');
+		const col = parseInt(td.dataset.col ?? '-1');
+		if (row < 1 || col < 0) return; // data rows only
+		sel.ctrlHeld = evt.ctrlKey || evt.metaKey;
+		removeSelectionPanel();
+		sel.start    = { row, col };
+		sel.end      = { row, col };
+		sel.dragging = true;
+		sel.hasMoved = false;
+		updateHighlights();
+		evt.preventDefault();
+
+		// Register mouseup for THIS drag only — re-registered on each mousedown
+		activeDocument.addEventListener('mouseup', () => {
+			sel.dragging = false;
+			if (sel.hasMoved && sel.start && sel.end &&
+				(sel.start.row !== sel.end.row || sel.start.col !== sel.end.col)) {
+				if (sel.ctrlHeld) {
+					// ctrl+select: keep highlight, no popup
+				} else {
+					showSelectionPanel();
+				}
+			} else {
+				clearSel();
+			}
+			window.setTimeout(() => {
+				sel.hasMoved = false;
+				delete table.dataset.wasDragged;
+			}, 0);
+		}, { once: true });
+	});
+
+	tbody.addEventListener('mouseover', (evt: MouseEvent) => {
+		if (!sel.dragging) return;
+		const td = (evt.target as HTMLElement).closest<HTMLElement>('td[data-row][data-col]');
+		if (!td) return;
+		const row = parseInt(td.dataset.row ?? '-1');
+		const col = parseInt(td.dataset.col ?? '-1');
+		if (row < 1 || col < 0) return;
+		if (row !== sel.end?.row || col !== sel.end?.col) {
+			sel.end = { row, col };
+			sel.hasMoved = true;
+			table.dataset.wasDragged = ''; // only set on actual movement, not every click
+			updateHighlights();
+		}
+	});
+
+	// ── Header row drag-to-select (for merging header cells) ────────────────
+	thead.addEventListener('mousedown', (evt: MouseEvent) => {
+		if (evt.button !== 0) return;
+		if ((evt.target as HTMLElement).closest('.bt-col-drag-handle')) return;
+		const th = (evt.target as HTMLElement).closest<HTMLElement>('th[data-row][data-col]');
+		if (!th) return;
+		const col = parseInt(th.dataset.col ?? '-1');
+		if (col < 0) return;
+		removeSelectionPanel();
+		sel.ctrlHeld = evt.ctrlKey || evt.metaKey;
+		sel.start    = { row: 0, col };
+		sel.end      = { row: 0, col };
+		sel.dragging = true;
+		sel.hasMoved = false;
+		updateHighlights();
+		evt.preventDefault();
+
+		activeDocument.addEventListener('mouseup', () => {
+			sel.dragging = false;
+			if (sel.hasMoved && sel.start && sel.end && sel.start.col !== sel.end.col) {
+				if (!sel.ctrlHeld) showSelectionPanel();
+			} else {
+				clearSel();
+			}
+			window.setTimeout(() => { sel.hasMoved = false; delete table.dataset.wasDragged; }, 0);
+		}, { once: true });
+	});
+
+	thead.addEventListener('mouseover', (evt: MouseEvent) => {
+		if (!sel.dragging || sel.start?.row !== 0) return;
+		const th = (evt.target as HTMLElement).closest<HTMLElement>('th[data-row][data-col]');
+		if (!th) return;
+		const col = parseInt(th.dataset.col ?? '-1');
+		if (col < 0) return;
+		if (col !== sel.end?.col) {
+			sel.end = { row: 0, col };
+			sel.hasMoved = true;
+			table.dataset.wasDragged = '';
+			updateHighlights();
+		}
+	});
+
+	// Click outside the table clears selection and panel
+	component.registerDomEvent(activeDocument, 'click', (evt: MouseEvent) => {
+		if (!selectionPanel && !sel.start) return;
+		if (!(evt.target as HTMLElement).closest('.bt-table-wrapper, .bt-cell-panel')) {
+			removeSelectionPanel();
+			clearSel();
+		}
+	});
+
+	// ── Drag-and-drop row/column reordering ──────────────────────────────────
+	if (onStructuralOp) {
+		let dragOverRow = -1;
+		let dragOverCol = -1;
+
+		const clearDropIndicators = () => {
+			table.querySelectorAll<HTMLElement>('.bt-drop-before').forEach(e => e.removeClass('bt-drop-before'));
+			table.querySelectorAll<HTMLElement>('.bt-drop-after').forEach(e => e.removeClass('bt-drop-after'));
+		};
+
+		// Row reordering: drop on tbody rows
+		tbody.addEventListener('dragover', (evt: DragEvent) => {
+			if (!evt.dataTransfer?.types.includes('bt-drag-row')) return;
+			evt.preventDefault();
+			const tr = (evt.target as HTMLElement).closest<HTMLElement>('tr');
+			if (!tr) return;
+			const rowIdx = parseInt(tr.querySelector('[data-row]')?.getAttribute('data-row') ?? '-1');
+			if (rowIdx < 1 || rowIdx === dragOverRow) return;
+			clearDropIndicators();
+			dragOverRow = rowIdx;
+			tr.addClass('bt-drop-before');
+		});
+
+		tbody.addEventListener('drop', (evt: DragEvent) => {
+			evt.preventDefault();
+			clearDropIndicators();
+			const fromStr = evt.dataTransfer?.getData('bt-drag-row');
+			if (!fromStr) return;
+			const fromIdx = parseInt(fromStr);
+			const tr = (evt.target as HTMLElement).closest<HTMLElement>('tr');
+			const toIdx = parseInt(tr?.querySelector('[data-row]')?.getAttribute('data-row') ?? '-1');
+			if (fromIdx >= 1 && toIdx >= 1 && fromIdx !== toIdx) {
+				void onStructuralOp({ type: 'move-row', fromIdx, toIdx });
+			}
+			dragOverRow = -1;
+		});
+
+		// Column reordering: drop on header cells
+		thead.addEventListener('dragover', (evt: DragEvent) => {
+			if (!evt.dataTransfer?.types.includes('bt-drag-col')) return;
+			evt.preventDefault();
+			const th = (evt.target as HTMLElement).closest<HTMLElement>('th[data-col]');
+			if (!th) return;
+			const colIdx = parseInt(th.dataset.col ?? '-1');
+			if (colIdx < 0 || colIdx === dragOverCol) return;
+			clearDropIndicators();
+			dragOverCol = colIdx;
+			th.addClass('bt-drop-before');
+		});
+
+		thead.addEventListener('drop', (evt: DragEvent) => {
+			evt.preventDefault();
+			clearDropIndicators();
+			const fromStr = evt.dataTransfer?.getData('bt-drag-col');
+			if (!fromStr) return;
+			const fromIdx = parseInt(fromStr);
+			const th = (evt.target as HTMLElement).closest<HTMLElement>('th[data-col]');
+			const toIdx = parseInt(th?.dataset.col ?? '-1');
+			if (fromIdx >= 0 && toIdx >= 0 && fromIdx !== toIdx) {
+				void onStructuralOp({ type: 'move-col', fromIdx, toIdx });
+			}
+			dragOverCol = -1;
+		});
+	}
+	const hiddenRows = new Set(model.hiddenRows ?? []);
+	const visibleCellCount = countVisibleCells(model);
+	let r = 1;
+	while (r < model.rows.length) {
+		if (hiddenRows.has(r)) {
+			// Collect the contiguous hidden-row group
+			const group: number[] = [];
+			while (r < model.rows.length && hiddenRows.has(r)) group.push(r++);
+
+			const indicatorTr = tbody.createEl('tr', { cls: 'bt-row-indicator' });
+			const td = indicatorTr.createEl('td', {
+				cls: 'bt-row-indicator-cell',
+				attr: { colspan: String(visibleCellCount) },
+			});
+			td.createSpan({ cls: 'bt-indicator-arrow', text: '▶' });
+			td.createSpan({ cls: 'bt-indicator-label',
+				text: ` ${group.length} hidden row${group.length > 1 ? 's' : ''}` });
+			if (onStructuralOp) {
+				td.addEventListener('click', () =>
+					void onStructuralOp({ type: 'show-row-group', rowIndices: group }));
+			}
+			continue;
+		}
+		const tr = tbody.createEl('tr');
+		await renderRow(tr, r, model, occupied, registry, getRegistry, app, sourcePath, component, false, onCellChange, onColTypeChange, onStructuralOp);
+		r++;
+	}
+
+	// Footer
+	if (model.footer) {
+		// Flatten array and split strings on \n so YAML arrays and \n-strings both work
+		const rawLines = Array.isArray(model.footer) ? model.footer : [model.footer];
+		const lines = rawLines.flatMap(l => l.split('\n'));
+		const footerEl = container.createDiv({ cls: 'bt-table-footer' });
+		for (const line of lines) {
+			footerEl.createDiv({ cls: 'bt-table-footer-line', text: line });
+		}
+		if (onStructuralOp) {
+			footerEl.addClass('bt-text-editable');
+			footerEl.setAttribute('aria-label', t('clickToEditFooter'));
+			footerEl.setAttribute('data-tooltip-position', 'top');
+			footerEl.addEventListener('click', () => {
+				if (footerEl.hasClass('bt-editing')) return;
+				const currentText = lines.join('\n');
+				enterLineEdit(footerEl, currentText, newVal => {
+					if (!newVal) {
+						void onStructuralOp({ type: 'set-footer', footer: undefined });
+						return;
+					}
+					const parts = newVal.split('\n').filter(l => l.length > 0);
+					void onStructuralOp({
+						type: 'set-footer',
+						footer: parts.length === 1 ? (parts[0] ?? newVal) : parts,
+					});
+				}, true /* multiLine */);
+			});
+		}
+	}
+
+	// ── Edge-hover add strips (fixed-position, works in both editing & reading mode) ──
+	if (onStructuralOp) {
+		const addRowBtn = activeDocument.body.createDiv({ cls: 'bt-edge-add-row' });
+		addRowBtn.createSpan({ cls: 'bt-edge-plus', text: '+' });
+
+		const addColBtn = activeDocument.body.createDiv({ cls: 'bt-edge-add-col' });
+		addColBtn.createSpan({ cls: 'bt-edge-plus', text: '+' });
+
+		// Clean up when the component unloads
+		component.register(() => { addRowBtn.remove(); addColBtn.remove(); });
+
+		addRowBtn.addEventListener('click', () =>
+			void onStructuralOp({ type: 'insert-row', afterRowIdx: model.rows.length - 1 }));
+		addColBtn.addEventListener('click', () =>
+			void onStructuralOp({ type: 'insert-col', afterColIdx: model.columns.length - 1 }));
+
+		const positionStrips = () => {
+			const r = table.getBoundingClientRect();
+			addRowBtn.setCssProps({
+				'--strip-top':   `${r.bottom + 2}px`,
+				'--strip-left':  `${r.left}px`,
+				'--strip-width': `${r.width}px`,
+			});
+			addColBtn.setCssProps({
+				'--strip-top':    `${r.top}px`,
+				'--strip-left':   `${r.right + 2}px`,
+				'--strip-height': `${r.height}px`,
+			});
+		};
+
+		let hideTimer: number | null = null;
+		const scheduleHide = () => {
+			if (hideTimer !== null) window.clearTimeout(hideTimer);
+			hideTimer = window.setTimeout(() => {
+				addRowBtn.removeClass('bt-strip-visible');
+				addColBtn.removeClass('bt-strip-visible');
+				hideTimer = null;
+			}, 80);
+		};
+		const cancelHide = () => {
+			if (hideTimer !== null) { window.clearTimeout(hideTimer); hideTimer = null; }
+		};
+
+		table.addEventListener('mouseenter', () => {
+			cancelHide();
+			positionStrips();
+			addRowBtn.addClass('bt-strip-visible');
+			addColBtn.addClass('bt-strip-visible');
+		});
+		table.addEventListener('mouseleave', scheduleHide);
+		addRowBtn.addEventListener('mouseenter', cancelHide);
+		addRowBtn.addEventListener('mouseleave', scheduleHide);
+		addColBtn.addEventListener('mouseenter', cancelHide);
+		addColBtn.addEventListener('mouseleave', scheduleHide);
+
+		// On scroll: reposition strips if visible, hide if table left the viewport
+		component.registerDomEvent(activeDocument, 'scroll', () => {
+			if (!addRowBtn.hasClass('bt-strip-visible')) return;
+			const r = table.getBoundingClientRect();
+			const inView = r.bottom > 0 && r.top < activeWindow.innerHeight &&
+			               r.right  > 0 && r.left < activeWindow.innerWidth;
+			if (inView) {
+				positionStrips();
+			} else {
+				addRowBtn.removeClass('bt-strip-visible');
+				addColBtn.removeClass('bt-strip-visible');
+			}
+		}, { passive: true, capture: true });
+	}
+}
+
+async function renderRow(
+	tr: HTMLTableRowElement,
+	rowIdx: number,
+	model: TableModel,
+	occupied: boolean[][],
+	registry: ChoiceRegistry,
+	getRegistry: () => ChoiceRegistry,
+	app: App,
+	sourcePath: string,
+	component: Component,
+	isHeader: boolean,
+	onCellChange?: CellChangeHandler,
+	onColTypeChange?: ColTypeChangeHandler,
+	onStructuralOp?: StructuralOpHandler,
+): Promise<void> {
+	const rowCells   = model.rows[rowIdx] ?? [];
+	const hiddenRows = new Set(model.hiddenRows ?? []);
+	let c = 0;
+
+	while (c < model.columns.length) {
+		if (occupied[rowIdx]?.[c]) { c++; continue; }
+
+		const col = model.columns[c];
+		if (!col) { c++; continue; }
+
+		// Hidden column group — render a single narrow indicator cell
+		if (col.hidden) {
+			const group: number[] = [];
+			while (c < model.columns.length && model.columns[c]?.hidden) group.push(c++);
+
+			const tag       = isHeader ? 'th' : 'td';
+			const indicator = tr.createEl(tag, { cls: 'bt-col-indicator' });
+
+			if (isHeader) {
+				const label = `${group.length}`;
+				indicator.createSpan({ cls: 'bt-indicator-arrow', text: '▶' });
+				indicator.createSpan({ cls: 'bt-indicator-count', text: label });
+				indicator.setAttribute('aria-label',
+					`${group.length} hidden column${group.length > 1 ? 's' : ''}. Click to show.`);
+				indicator.setAttribute('data-tooltip-position', 'top');
+				if (onStructuralOp) {
+					indicator.addEventListener('click', () =>
+						void onStructuralOp({ type: 'show-col-group', colIndices: group }));
+				}
+			}
+			continue;
+		}
+
+		// Normal cell — snapshot c so closures below capture the right column index
+		const colIdx = c;
+		const isFirstVisible = !isHeader && c === (model.columns.findIndex(col2 => !col2?.hidden));
+		const merge = getMergeOrigin(rowIdx, colIdx, model.merges);
+		const tag   = isHeader ? 'th' : 'td';
+		const el    = tr.createEl(tag, { cls: isHeader ? 'bt-th' : 'bt-td' });
+		el.dataset.row = String(rowIdx);
+		el.dataset.col = String(colIdx);
+
+		if (merge) {
+			// Adjust rowspan/colspan to skip hidden rows/cols within the merge
+			let rowSpan = 0;
+			for (let ri = merge.startRow; ri <= merge.endRow; ri++) {
+				if (!hiddenRows.has(ri)) rowSpan++;
+			}
+			let colSpan = 0;
+			for (let ci = merge.startCol; ci <= merge.endCol; ci++) {
+				if (!model.columns[ci]?.hidden) colSpan++;
+			}
+			if (rowSpan > 1) el.rowSpan = rowSpan;
+			if (colSpan > 1) el.colSpan = colSpan;
+		}
+
+		applyColStyle(el, col);
+		applyStyleRules(el, rowIdx, colIdx, model.styles);
+
+		const value = rowCells[colIdx] ?? '';
+
+		// ── Drag-reorder handles ─────────────────────────────────────────────
+		if (onStructuralOp) {
+			const makeDots = (parent: HTMLElement) => {
+				const grid = parent.createDiv({ cls: 'bt-drag-dots' });
+				for (let i = 0; i < 6; i++) grid.createSpan();
+			};
+			if (isHeader) {
+				// Column drag handle: top-center of header cell, cursor:grab
+				const cdh = el.createDiv({
+					cls: 'bt-col-drag-handle',
+					attr: { draggable: 'true', 'aria-label': t('dragReorderCol') },
+				});
+				makeDots(cdh);
+				cdh.addEventListener('dragstart', (evt: DragEvent) => {
+					evt.dataTransfer?.setData('bt-drag-col', String(colIdx));
+					el.addClass('bt-dragging');
+				});
+				cdh.addEventListener('dragend', () => el.removeClass('bt-dragging'));
+			} else if (isFirstVisible) {
+				// Row drag handle: left-center of first visible data cell
+				const rdh = el.createDiv({
+					cls: 'bt-row-drag-handle',
+					attr: { draggable: 'true', 'aria-label': t('dragReorderRow') },
+				});
+				makeDots(rdh);
+				rdh.addEventListener('dragstart', (evt: DragEvent) => {
+					evt.dataTransfer?.setData('bt-drag-row', String(rowIdx));
+					el.addClass('bt-dragging');
+				});
+				rdh.addEventListener('dragend', () => el.removeClass('bt-dragging'));
+			}
+		}
+
+		if (isHeader) {
+			renderHeaderCell(el, value, col, colIdx, getRegistry, app, sourcePath, model, onCellChange, onColTypeChange, onStructuralOp);
+		} else {
+			await renderDataCell(el, value, col, rowIdx, colIdx, registry, app, sourcePath, component, model, onCellChange, onStructuralOp);
+		}
+		c++;
+	}
+}
+
+function renderHeaderCell(
+	el: HTMLElement,
+	value: string,
+	col: ColumnDef,
+	colIdx: number,
+	getRegistry: () => ChoiceRegistry,
+	app: App,
+	sourcePath: string,
+	model: TableModel,
+	onCellChange?: CellChangeHandler,
+	onColTypeChange?: ColTypeChangeHandler,
+	onStructuralOp?: StructuralOpHandler,
+): void {
+	el.createSpan({ cls: 'bt-th-text', text: value });
+	if (col.type) el.addClass('bt-th-typed');
+
+	const openPanel = (evt: MouseEvent) => {
+		if (!onStructuralOp && !onColTypeChange) return;
+		const ops: CellOpDef[] = [];
+		if (onStructuralOp) {
+			ops.push(
+				{ icon: 'arrow-down',  label: t('insertRowBelow'),  action: () => void onStructuralOp({ type: 'insert-row', afterRowIdx: 0 }) },
+				{ icon: 'arrow-left',  label: t('insertColBefore'), action: () => void onStructuralOp({ type: 'insert-col', afterColIdx: colIdx - 1 }) },
+				{ icon: 'arrow-right', label: t('insertColAfter'),  action: () => void onStructuralOp({ type: 'insert-col', afterColIdx: colIdx }) },
+				{ icon: 'eye-off',     label: t('hideColumn'),      action: () => void onStructuralOp({ type: 'hide-col', colIdx }) },
+				{ icon: 'trash',       label: t('deleteColumn'), danger: true, action: () => void onStructuralOp({ type: 'delete-col', colIdx }) },
+			);
+		}
+		openCellPanel({
+			anchor: el,
+			els: [el],
+			styleTarget: colIndexToLetter(colIdx) + '1',
+			existingStyle: cellEffectiveStyle(model, 0, colIdx),
+			showTextColor: true,
+			cellOps: ops,
+			typeSection: onColTypeChange ? {
+				colIdx,
+				currentType: col.type,
+				getRegistry,
+				onColTypeChange,
+			} : undefined,
+			onApplyStyle: onStructuralOp
+				? (bg, color, size) => void onStructuralOp({ type: 'set-cell-style', rowIdx: 0, colIdx, bg, color, size })
+				: () => { /* no-op */ },
+		});
+	};
+
+	el.addEventListener('contextmenu', (evt: MouseEvent) => { evt.preventDefault(); openPanel(evt); });
+	el.addEventListener('keydown', (evt: KeyboardEvent) => {
+		if (evt.key === 'Enter' || evt.key === ' ') {
+			evt.preventDefault();
+			const r = el.getBoundingClientRect();
+			openPanel(new MouseEvent('click', { clientX: r.left, clientY: r.bottom }));
+		}
+	});
+
+	if (onCellChange) {
+		el.addClass('bt-th-editable');
+		let editTimer: number | null = null;
+		el.addEventListener('mousedown', (evt: MouseEvent) => {
+			if (evt.detail >= 2 && editTimer !== null) { window.clearTimeout(editTimer); editTimer = null; }
+		});
+		el.addEventListener('click', (evt: MouseEvent) => {
+			if (el.hasClass('bt-editing')) return;
+			if (evt.detail >= 2) return;
+			if (editTimer !== null) return;
+			editTimer = window.setTimeout(() => { editTimer = null; enterEditMode(el, value, 0, colIdx, app, sourcePath, onCellChange); }, 200);
+		});
+	}
+
+	el.addEventListener('dblclick', (evt: MouseEvent) => {
+		if (el.hasClass('bt-editing')) return;
+		openPanel(evt);
+	});
+}
+
+async function renderDataCell(
+	el: HTMLElement,
+	value: string,
+	col: ColumnDef,
+	rowIdx: number,
+	colIdx: number,
+	registry: ChoiceRegistry,
+	app: App,
+	sourcePath: string,
+	component: Component,
+	model: TableModel,
+	onCellChange?: CellChangeHandler,
+	onStructuralOp?: StructuralOpHandler,
+): Promise<void> {
+	const trimmed = value.trim();
+
+	// Special type: date picker
+	if (col.type === 'date') {
+		renderDateCell(el, trimmed, rowIdx, colIdx, model, onCellChange, onStructuralOp);
+		return;
+	}
+
+	if (col.type) {
+		const choiceType = registry.get(col.type);
+		const option = choiceType ? registry.getOption(col.type, trimmed) : undefined;
+
+		const pill = el.createSpan({ cls: 'bt-choice' });
+
+		if (option) {
+			if (option.color) pill.setCssProps({ '--bt-choice-bg': option.color });
+			pill.setText(option.label ?? option.value);
+		} else {
+			pill.addClass('bt-choice-unknown');
+			pill.createSpan({ cls: 'bt-choice-warn-icon', text: '⚠' });
+			pill.createSpan({ text: trimmed || '(empty)' });
+			pill.setAttribute(
+				'aria-label',
+				`"${trimmed}" is not a valid option for type "${col.type ?? ''}"`,
+			);
+			pill.setAttribute('data-tooltip-position', 'top');
+		}
+
+		if (onCellChange && choiceType) {
+			pill.addClass('bt-choice-interactive');
+			pill.setAttribute('role', 'button');
+			pill.setAttribute('tabindex', '0');
+			if (option) {
+				pill.setAttribute('aria-label', t('changeValue'));
+				pill.setAttribute('data-tooltip-position', 'top');
+			}
+
+			const openMenu = (evt: MouseEvent) => {
+				const menu = new Menu();
+				for (const opt of choiceType.options) {
+					menu.addItem(item => {
+						item.setTitle(opt.label ?? opt.value);
+						if (opt.value === trimmed) item.setChecked(true);
+						item.onClick(() => {
+							pill.removeClass('bt-choice-unknown');
+							if (opt.color) pill.setCssProps({ '--bt-choice-bg': opt.color });
+							pill.setText(opt.label ?? opt.value);
+							void onCellChange(rowIdx, colIdx, opt.value);
+						});
+					});
+				}
+				menu.showAtMouseEvent(evt);
+			};
+
+			// Single click → value menu (100 ms delay to allow double-click detection).
+			// mousedown.detail >= 2 fires before click(detail=2) and cancels the timer,
+			// keeping the transition to the unified panel clean with no dropdown flash.
+			let choiceTimer: number | null = null;
+			el.addEventListener('mousedown', (evt: MouseEvent) => {
+				if (evt.detail >= 2 && choiceTimer !== null) {
+					window.clearTimeout(choiceTimer);
+					choiceTimer = null;
+				}
+			});
+			el.addEventListener('click', (evt: MouseEvent) => {
+				if (evt.detail >= 2) return;
+				if (choiceTimer !== null) return;
+				const savedEvt = evt;
+				choiceTimer = window.setTimeout(() => { choiceTimer = null; openMenu(savedEvt); }, 100);
+			});
+			el.addEventListener('keydown', (evt: KeyboardEvent) => {
+				if (evt.key === 'Enter' || evt.key === ' ') {
+					evt.preventDefault();
+					el.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+				}
+			});
+		}
+
+		if (onStructuralOp) {
+			el.addEventListener('dblclick', (evt: MouseEvent) => {
+				const ops = dataCellOps(rowIdx, colIdx, model, onStructuralOp);
+				openCellPanel({
+					anchor: el, els: [el],
+					styleTarget: colIndexToLetter(colIdx) + (rowIdx + 1),
+					existingStyle: cellEffectiveStyle(model, rowIdx, colIdx),
+					showTextColor: !!getMergeOrigin(rowIdx, colIdx, model.merges),
+					cellOps: ops,
+					onApplyStyle: (bg, color, size) => void onStructuralOp({ type: 'set-cell-style', rowIdx, colIdx, bg, color, size }),
+				});
+			});
+		}
+		return;
+	}
+
+	if (trimmed) {
+		await MarkdownRenderer.render(app, trimmed, el, sourcePath, component);
+	}
+
+	if (onCellChange) {
+		el.addClass('bt-td-editable');
+
+		// Single click (200 ms delay) → text editor; double click → style panel.
+		// The delay lets mousedown.detail detect a double-click before the edit opens.
+		let editTimer: number | null = null;
+		el.addEventListener('mousedown', (evt: MouseEvent) => {
+			if (evt.detail >= 2 && editTimer !== null) {
+				window.clearTimeout(editTimer);
+				editTimer = null;
+			}
+		});
+		el.addEventListener('click', (evt: MouseEvent) => {
+			if (el.hasClass('bt-editing')) return;
+			if ((evt.target as HTMLElement).closest('.internal-link')) return;
+			if ((evt.target as HTMLElement).closest('table')?.dataset.wasDragged !== undefined) return;
+			if (evt.detail >= 2) return;
+			if (editTimer !== null) return;
+			editTimer = window.setTimeout(() => {
+				editTimer = null;
+				enterEditMode(el, value, rowIdx, colIdx, app, sourcePath, onCellChange);
+			}, 200);
+		});
+	}
+
+	if (onStructuralOp) {
+		el.addEventListener('dblclick', () => {
+			if (el.hasClass('bt-editing')) return;
+			const ops = dataCellOps(rowIdx, colIdx, model, onStructuralOp);
+			openCellPanel({
+				anchor: el, els: [el],
+				styleTarget: colIndexToLetter(colIdx) + (rowIdx + 1),
+				existingStyle: cellEffectiveStyle(model, rowIdx, colIdx),
+				showTextColor: true,
+				cellOps: ops,
+				onApplyStyle: (bg, color, size) => void onStructuralOp({ type: 'set-cell-style', rowIdx, colIdx, bg, color, size }),
+			});
+		});
+	}
+}
+
+// ── Date cell ─────────────────────────────────────────────────────────────────
+
+function renderDateCell(
+	el: HTMLElement,
+	value: string,
+	rowIdx: number,
+	colIdx: number,
+	model: TableModel,
+	onCellChange?: CellChangeHandler,
+	onStructuralOp?: StructuralOpHandler,
+): void {
+	if (value) {
+		try {
+			const [y, m, d] = value.split('-').map(Number);
+			const date = new Date(y ?? 0, (m ?? 1) - 1, d ?? 1);
+			el.createSpan({ text: date.toLocaleDateString(undefined, { year: 'numeric', month: 'short', day: 'numeric' }) });
+		} catch {
+			el.createSpan({ text: value });
+		}
+	} else {
+		el.createSpan({ cls: 'bt-date-empty', text: '—' });
+	}
+
+	if (onCellChange) {
+		el.addClass('bt-td-editable');
+
+		// Single click (delayed) → date picker; double click → style panel
+		let dateTimer: number | null = null;
+		el.addEventListener('mousedown', (evt: MouseEvent) => {
+			if (evt.detail >= 2 && dateTimer !== null) {
+				window.clearTimeout(dateTimer);
+				dateTimer = null;
+			}
+		});
+		el.addEventListener('click', (evt: MouseEvent) => {
+			if (el.hasClass('bt-editing')) return;
+			if ((evt.target as HTMLElement).closest('table')?.dataset.wasDragged !== undefined) return;
+			if (evt.detail >= 2) return;
+			if (dateTimer !== null) return;
+			dateTimer = window.setTimeout(() => {
+				dateTimer = null;
+				enterDateEditMode(el, value, rowIdx, colIdx, onCellChange);
+			}, 200);
+		});
+	}
+
+	if (onStructuralOp) {
+		el.addEventListener('dblclick', () => {
+			if (el.hasClass('bt-editing')) return;
+			const ops = dataCellOps(rowIdx, colIdx, model, onStructuralOp);
+			openCellPanel({
+				anchor: el, els: [el],
+				styleTarget: colIndexToLetter(colIdx) + (rowIdx + 1),
+				existingStyle: cellEffectiveStyle(model, rowIdx, colIdx),
+				showTextColor: true,
+				cellOps: ops,
+				onApplyStyle: (bg, color, size) => void onStructuralOp({ type: 'set-cell-style', rowIdx, colIdx, bg, color, size }),
+			});
+		});
+	}
+}
+
+interface CellOpDef {
+	icon:    string;
+	label:   string;
+	danger?: boolean;
+	action:  () => void;
+}
+
+interface CellPanelConfig {
+	anchor:        HTMLElement;
+	els:           HTMLElement[];
+	styleTarget:   string;
+	existingStyle: { bg?: string; color?: string; size?: number };
+	showTextColor: boolean;
+	cellOps:       CellOpDef[];
+	typeSection?:  {
+		colIdx:          number;
+		currentType?:    string;
+		getRegistry:     () => ChoiceRegistry;
+		onColTypeChange: ColTypeChangeHandler;
+	};
+	onApplyStyle: (bg: string | null, color: string | null, size: number | null) => void;
+	onClose?:     () => void;
+}
+
+/** Effective style of a cell: last-wins aggregation of all matching style rules. */
+function cellEffectiveStyle(
+	model: TableModel, rowIdx: number, colIdx: number,
+): { bg?: string; color?: string; size?: number } {
+	const r: { bg?: string; color?: string; size?: number } = {};
+	for (const rule of model.styles) {
+		if (!matchTarget(rowIdx, colIdx, rule.target)) continue;
+		if (rule.bg)    r.bg    = rule.bg;
+		if (rule.color) r.color = rule.color;
+		if (rule.size)  r.size  = rule.size;
+	}
+	return r;
+}
+
+/** Standard cell-op buttons for a data cell (row/col insert/delete/hide + optional unmerge).
+ *  For merged cells, delete/hide/insert operations span the full merge range. */
+function dataCellOps(
+	rowIdx: number, colIdx: number,
+	model: TableModel, onStructuralOp: StructuralOpHandler,
+): CellOpDef[] {
+	const ops: CellOpDef[] = [];
+	const merge = getMergeOrigin(rowIdx, colIdx, model.merges);
+	if (merge && (merge.endRow > merge.startRow || merge.endCol > merge.startCol)) {
+		ops.push({ icon: 'table-2', label: t('unmergeCells'),
+			action: () => void onStructuralOp({ type: 'unmerge-cells', startRow: merge.startRow, startCol: merge.startCol }) });
+	}
+
+	const r1 = merge?.startRow ?? rowIdx;
+	const r2 = merge?.endRow   ?? rowIdx;
+	const c1 = merge?.startCol ?? colIdx;
+	const c2 = merge?.endCol   ?? colIdx;
+
+	ops.push(
+		{ icon: 'arrow-up',    label: t('insertRowAbove'),  action: () => void onStructuralOp({ type: 'insert-row', afterRowIdx: r1 - 1 }) },
+		{ icon: 'arrow-down',  label: t('insertRowBelow'),  action: () => void onStructuralOp({ type: 'insert-row', afterRowIdx: r2 }) },
+		{ icon: 'arrow-left',  label: t('insertColBefore'), action: () => void onStructuralOp({ type: 'insert-col', afterColIdx: c1 - 1 }) },
+		{ icon: 'arrow-right', label: t('insertColAfter'),  action: () => void onStructuralOp({ type: 'insert-col', afterColIdx: c2 }) },
+		{ icon: 'eye-off', label: hideRowsLabel(r1, r2),
+			action: () => { for (let r = r1; r <= r2; r++) void onStructuralOp({ type: 'hide-row', rowIdx: r }); } },
+		{ icon: 'eye-off', label: hideColsLabel(c1, c2, colIndexToLetter),
+			action: () => { for (let c = c1; c <= c2; c++) void onStructuralOp({ type: 'hide-col', colIdx: c }); } },
+		{ icon: 'trash', label: deleteRowsLabel(r1, r2), danger: true,
+			action: () => { for (let r = r2; r >= r1; r--) void onStructuralOp({ type: 'delete-row', rowIdx: r }); } },
+		{ icon: 'trash', label: deleteColsLabel(c1, c2, colIndexToLetter), danger: true,
+			action: () => { for (let c = c2; c >= c1; c--) void onStructuralOp({ type: 'delete-col', colIdx: c }); } },
+	);
+	return ops;
+}
+
+/** Unified panel shown on double-click for all cell types (header / data / selection). */
+function openCellPanel(config: CellPanelConfig): HTMLElement {
+	const { anchor, els, existingStyle, showTextColor, cellOps, typeSection, onApplyStyle } = config;
+
+	const saved = els.map(e => ({
+		bg:       e.style.getPropertyValue('background-color'),
+		color:    e.style.getPropertyValue('color'),
+		size:     e.style.getPropertyValue('font-size'),
+		sizeVar:  e.style.getPropertyValue('--bt-cell-font-size'),
+	}));
+	const restoreEls = () => els.forEach((e, i) => {
+		const s = saved[i];
+		if (!s) return;
+		if (s.bg)      e.style.setProperty('background-color', s.bg);          else e.style.removeProperty('background-color');
+		if (s.color)   e.style.setProperty('color', s.color);                  else e.style.removeProperty('color');
+		if (s.size)    e.style.setProperty('font-size', s.size);               else e.style.removeProperty('font-size');
+		if (s.sizeVar) e.style.setProperty('--bt-cell-font-size', s.sizeVar);  else e.style.removeProperty('--bt-cell-font-size');
+	});
+
+	const ar  = anchor.getBoundingClientRect();
+	const PW  = 230;
+	let   top  = ar.bottom + 4;
+	let   left = ar.left;
+	if (top  + 320 > activeWindow.innerHeight) top  = Math.max(8, ar.top - 320 - 4);
+	if (left + PW  > activeWindow.innerWidth)  left = Math.max(8, ar.right - PW);
+	top  = Math.max(8, top);
+	left = Math.max(8, left);
+
+	const panel = activeDocument.body.createDiv({ cls: 'bt-cell-panel' });
+	panel.setCssProps({ '--bt-cp-top': `${top}px`, '--bt-cp-left': `${left}px` });
+
+	// Cell ops
+	if (cellOps.length > 0) {
+		for (const op of cellOps) {
+			const item = panel.createDiv({ cls: `bt-cp-item${op.danger ? ' bt-cp-danger' : ''}` });
+			const iconEl = item.createSpan({ cls: 'bt-cp-item-icon' });
+			setIcon(iconEl, op.icon);
+			item.createSpan({ text: op.label });
+			item.addEventListener('click', () => { op.action(); close(false); });
+		}
+		panel.createDiv({ cls: 'bt-cp-divider' });
+	}
+
+	// Style section
+	const styleEl  = panel.createDiv({ cls: 'bt-cp-style' });
+	const bgRow    = styleEl.createDiv({ cls: 'bt-cp-style-row' });
+	bgRow.createSpan({ cls: 'bt-cp-style-label', text: t('background') });
+	const bgWrap   = bgRow.createDiv({ cls: 'bt-sp-color-wrap' });
+	const bgEnable = bgWrap.createEl('input', { attr: { type: 'checkbox' } });
+	const bgPicker = bgWrap.createEl('input', { cls: 'bt-sp-color', attr: { type: 'color', value: existingStyle.bg ?? '#ffffff' } });
+	bgEnable.checked  = !!existingStyle.bg;
+	bgPicker.disabled = !bgEnable.checked;
+
+	let colorEnable: HTMLInputElement | null = null;
+	let colorPicker: HTMLInputElement | null = null;
+	if (showTextColor) {
+		const colorRow  = styleEl.createDiv({ cls: 'bt-cp-style-row' });
+		colorRow.createSpan({ cls: 'bt-cp-style-label', text: t('textColor') });
+		const colorWrap = colorRow.createDiv({ cls: 'bt-sp-color-wrap' });
+		colorEnable = colorWrap.createEl('input', { attr: { type: 'checkbox' } });
+		colorPicker = colorWrap.createEl('input', { cls: 'bt-sp-color', attr: { type: 'color', value: existingStyle.color ?? '#000000' } });
+		colorEnable.checked  = !!existingStyle.color;
+		colorPicker.disabled = !colorEnable.checked;
+	}
+
+	const sizeRow   = styleEl.createDiv({ cls: 'bt-cp-style-row' });
+	sizeRow.createSpan({ cls: 'bt-cp-style-label', text: t('fontSize') });
+	const sizeWrap  = sizeRow.createDiv({ cls: 'bt-sp-size-wrap' });
+	const sizeInput = sizeWrap.createEl('input', { cls: 'bt-sp-size',
+		attr: { type: 'number', min: '8', max: '72', step: '1', placeholder: 'Default',
+		        value: existingStyle.size != null ? String(existingStyle.size) : '' },
+	});
+	sizeWrap.createSpan({ text: 'px' });
+
+	const styleFoot = styleEl.createDiv({ cls: 'bt-cp-style-footer' });
+	const clearBtn  = styleFoot.createEl('button', { cls: 'bt-sp-clear-btn', text: t('clearFormat') });
+	const applyBtn  = styleFoot.createEl('button', { cls: 'bt-sp-apply',     text: t('apply') });
+
+	const preview = () => {
+		const bv = bgEnable.checked ? bgPicker.value : null;
+		const cv = colorEnable?.checked && colorPicker ? colorPicker.value : null;
+		const ss = sizeInput.value.trim();
+		const sv = ss ? `${parseInt(ss, 10)}px` : null;
+		for (const e of els) {
+			if (bv)    e.style.setProperty('background-color', bv);          else e.style.removeProperty('background-color');
+			if (cv)    e.style.setProperty('color', cv);                    else e.style.removeProperty('color');
+			if (sv) {
+				e.style.setProperty('font-size', sv);
+				e.style.setProperty('--bt-cell-font-size', sv);
+			} else {
+				e.style.removeProperty('font-size');
+				e.style.removeProperty('--bt-cell-font-size');
+			}
+		}
+	};
+	bgEnable.addEventListener('change', () => { bgPicker.disabled = !bgEnable.checked; preview(); });
+	bgPicker.addEventListener('input', preview);
+	colorEnable?.addEventListener('change', () => { if (colorPicker) colorPicker.disabled = !colorEnable?.checked; preview(); });
+	colorPicker?.addEventListener('input', preview);
+	sizeInput.addEventListener('input', preview);
+
+	// Type section
+	if (typeSection) {
+		panel.createDiv({ cls: 'bt-cp-divider' });
+		const typeRow  = panel.createDiv({ cls: 'bt-cp-type-row' });
+		const typeLeft = typeRow.createDiv({ cls: 'bt-cp-type-left' });
+		const tIcon    = typeLeft.createSpan({ cls: 'bt-cp-item-icon' });
+		setIcon(tIcon, 'tag');
+		typeLeft.createSpan({ text: typeLabel(typeSection.currentType) });
+		typeRow.createSpan({ cls: 'bt-cp-chevron', text: '›' });
+		typeRow.addEventListener('click', (evt: MouseEvent) => {
+			const m = new Menu();
+			m.addItem(i => { i.setTitle(t('noType')); if (!typeSection.currentType) i.setChecked(true); i.onClick(() => void typeSection.onColTypeChange(typeSection.colIdx, undefined)); });
+			m.addSeparator();
+			for (const id of SPECIAL_TYPES) {
+				m.addItem(i => { i.setTitle(id); if (id === typeSection.currentType) i.setChecked(true); i.onClick(() => void typeSection.onColTypeChange(typeSection.colIdx, id)); });
+			}
+			m.addSeparator();
+			for (const ct of typeSection.getRegistry().getAllTypes()) {
+				m.addItem(i => { i.setTitle(ct.id); if (ct.id === typeSection.currentType) i.setChecked(true); i.onClick(() => void typeSection.onColTypeChange(typeSection.colIdx, ct.id)); });
+			}
+			m.showAtMouseEvent(evt);
+		});
+	}
+
+	// Actions
+	let committed = false;
+	const close = (restore: boolean) => {
+		if (!committed) { if (restore) restoreEls(); committed = true; }
+		panel.remove();
+		config.onClose?.();
+	};
+	clearBtn.addEventListener('click', () => { committed = true; onApplyStyle(null, null, null); panel.remove(); config.onClose?.(); });
+	applyBtn.addEventListener('click', () => {
+		committed = true;
+		onApplyStyle(
+			bgEnable.checked ? bgPicker.value : null,
+			colorEnable?.checked ? (colorPicker?.value ?? null) : null,
+			sizeInput.value.trim() ? parseInt(sizeInput.value.trim(), 10) : null,
+		);
+		panel.remove(); config.onClose?.();
+	});
+	panel.addEventListener('keydown', (evt: KeyboardEvent) => {
+		if (evt.key === 'Escape') { evt.stopPropagation(); close(true); }
+		if (evt.key === 'Enter' && evt.target !== sizeInput) { evt.preventDefault(); applyBtn.click(); }
+	});
+	window.setTimeout(() => {
+		const outside = (evt: MouseEvent) => { if (!panel.contains(evt.target as Node)) { close(true); activeDocument.removeEventListener('mousedown', outside); } };
+		activeDocument.addEventListener('mousedown', outside);
+	}, 0);
+	return panel;
+}
+
+function enterDateEditMode(
+	el: HTMLElement,
+	currentValue: string,
+	rowIdx: number,
+	colIdx: number,
+	onCellChange: CellChangeHandler,
+): void {
+	const savedNodes = Array.from(el.childNodes).map(n => n.cloneNode(true));
+	el.empty();
+	el.addClass('bt-editing');
+
+	const input = el.createEl('input', {
+		cls: 'bt-date-input',
+		attr: { type: 'date', value: currentValue },
+	});
+
+	let committed = false;
+
+	const save = () => {
+		if (committed) return;
+		committed = true;
+		el.removeClass('bt-editing');
+		if (input.value !== currentValue) {
+			void onCellChange(rowIdx, colIdx, input.value);
+		} else {
+			el.empty();
+			for (const node of savedNodes) el.appendChild(node);
+		}
+	};
+
+	const cancel = () => {
+		if (committed) return;
+		committed = true;
+		input.removeEventListener('blur', save);
+		el.removeClass('bt-editing');
+		el.empty();
+		for (const node of savedNodes) el.appendChild(node);
+	};
+
+	input.addEventListener('blur', save);
+	input.addEventListener('keydown', (evt: KeyboardEvent) => {
+		if (evt.key === 'Enter') { evt.preventDefault(); input.blur(); }
+		if (evt.key === 'Escape') { evt.preventDefault(); cancel(); }
+	});
+
+	input.focus();
+}
+
+/**
+ * Inline editor for title (single-line) and footer (multi-line).
+ * Single-line: Enter = save, Escape = cancel.
+ * Multi-line:  Enter = newline, Shift+Enter = save, Escape = cancel.
+ */
+function enterLineEdit(
+	el: HTMLElement,
+	currentText: string,
+	onSave: (newText: string) => void,
+	multiLine = false,
+): void {
+	const savedNodes = Array.from(el.childNodes).map(n => n.cloneNode(true));
+	el.empty();
+	el.addClass('bt-editing');
+
+	let committed = false;
+
+	if (multiLine) {
+		const textarea = el.createEl('textarea', { cls: 'bt-inline-editor bt-inline-editor-multi' });
+		textarea.value = currentText;
+		textarea.rows  = Math.max(2, currentText.split('\n').length);
+
+		const save = () => {
+			if (committed) return;
+			committed = true;
+			el.removeClass('bt-editing');
+			const newVal = textarea.value.trim();
+			if (newVal !== currentText) onSave(newVal);
+			else { el.empty(); for (const n of savedNodes) el.appendChild(n); }
+		};
+		const cancel = () => {
+			if (committed) return;
+			committed = true;
+			textarea.removeEventListener('blur', save);
+			el.removeClass('bt-editing');
+			el.empty();
+			for (const n of savedNodes) el.appendChild(n);
+		};
+
+		textarea.addEventListener('blur', save);
+		textarea.addEventListener('keydown', (evt: KeyboardEvent) => {
+			if (evt.key === 'Escape') { evt.preventDefault(); cancel(); }
+			if (evt.key === 'Enter' && evt.shiftKey) { evt.preventDefault(); textarea.blur(); }
+		});
+		textarea.focus();
+		// Move cursor to end so Enter adds a line break rather than replacing all text
+		textarea.setSelectionRange(textarea.value.length, textarea.value.length);
+		return;
+	}
+
+	const editor = el.createDiv({
+		cls: 'bt-inline-editor',
+		attr: { contenteditable: 'true' },
+	});
+	editor.textContent = currentText;
+
+	const save = () => {
+		if (committed) return;
+		committed = true;
+		el.removeClass('bt-editing');
+		const newVal = (editor.textContent ?? '').trim();
+		if (newVal !== currentText) onSave(newVal);
+		else { el.empty(); for (const n of savedNodes) el.appendChild(n); }
+	};
+
+	const cancel = () => {
+		if (committed) return;
+		committed = true;
+		editor.removeEventListener('blur', save);
+		el.removeClass('bt-editing');
+		el.empty();
+		for (const n of savedNodes) el.appendChild(n);
+	};
+
+	editor.addEventListener('blur', save);
+	editor.addEventListener('keydown', (evt: KeyboardEvent) => {
+		if (evt.key === 'Enter') { evt.preventDefault(); editor.blur(); }
+		if (evt.key === 'Escape') { evt.preventDefault(); cancel(); }
+	});
+
+	editor.focus();
+	const range = activeDocument.createRange();
+	range.selectNodeContents(editor);
+	activeWindow.getSelection()?.removeAllRanges();
+	activeWindow.getSelection()?.addRange(range);
+}
+
+/**
+ * Replaces cell content with a contenteditable div wired to WikilinkInputSuggest
+ * (AbstractInputSuggest subclass) for native Obsidian wikilink suggestions.
+ * Save on blur/Enter, cancel on Escape; pre-edit nodes restored on cancel.
+ */
+function enterEditMode(
+	el: HTMLElement,
+	rawValue: string,
+	rowIdx: number,
+	colIdx: number,
+	app: App,
+	sourcePath: string,
+	onCellChange: CellChangeHandler,
+): void {
+	const savedNodes = Array.from(el.childNodes).map(n => n.cloneNode(true));
+
+	const restoreNodes = () => {
+		el.empty();
+		for (const node of savedNodes) el.appendChild(node);
+	};
+
+	el.empty();
+	el.addClass('bt-editing');
+
+	// contenteditable div — accepted by AbstractInputSuggest natively
+	const editor = el.createDiv({
+		cls: 'bt-cell-editor',
+		attr: { contenteditable: 'true' },
+	});
+	editor.textContent = rawValue;
+
+	// WikilinkInputSuggest attaches to the div directly (no hacks needed)
+	new WikilinkInputSuggest(app, editor, sourcePath);
+
+	let committed = false;
+
+	const save = () => {
+		if (committed) return;
+		committed = true;
+		el.removeClass('bt-editing');
+		const newValue = editor.textContent ?? '';
+		if (newValue !== rawValue) {
+			void onCellChange(rowIdx, colIdx, newValue);
+		} else {
+			restoreNodes();
+		}
+	};
+
+	const cancel = () => {
+		if (committed) return;
+		committed = true;
+		editor.removeEventListener('blur', save);
+		el.removeClass('bt-editing');
+		restoreNodes();
+	};
+
+	editor.addEventListener('blur', save);
+	editor.addEventListener('keydown', (evt: KeyboardEvent) => {
+		// Stop Ctrl/Meta combos from bubbling to Obsidian's CodeMirror handlers.
+		// The browser handles Ctrl+V / Ctrl+Z / Ctrl+A natively for contenteditable,
+		// so blocking propagation only prevents Obsidian shortcuts (e.g. Ctrl+Shift+V
+		// "paste without formatting") from accidentally firing on the code block.
+		if (evt.ctrlKey || evt.metaKey) evt.stopPropagation();
+
+		if (evt.key === 'Enter' && !evt.shiftKey) {
+			evt.preventDefault();
+			editor.blur();
+		} else if (evt.key === 'Escape') {
+			evt.preventDefault();
+			cancel();
+		}
+	});
+
+	// Focus and select all existing text
+	editor.focus();
+	const range = activeDocument.createRange();
+	range.selectNodeContents(editor);
+	activeWindow.getSelection()?.removeAllRanges();
+	activeWindow.getSelection()?.addRange(range);
+}
+
+function applyColStyle(el: HTMLElement, col: ColumnDef): void {
+	if (col.width) el.setCssProps({ '--bt-col-width': `${col.width}px` });
+	if (col.align) el.addClass(`bt-align-${col.align}`);
+}
+
+function applyStyleRules(el: HTMLElement, row: number, col: number, styles: StyleRule[]): void {
+	for (const rule of styles) {
+		if (!matchTarget(row, col, rule.target)) continue;
+		// Set bg/color as inline styles so they beat any theme stylesheet rule
+		if (rule.bg)    el.style.setProperty('background-color', rule.bg);
+		if (rule.color) el.style.setProperty('color', rule.color);
+		if (rule.size) {
+			el.style.setProperty('font-size', `${rule.size}px`);
+			// Expose as CSS variable so .bt-choice pills (which have their own
+			// font-size declaration) can also pick up the override via the cascade.
+			el.style.setProperty('--bt-cell-font-size', `${rule.size}px`);
+		}
+		if (rule.bold)   el.addClass('bt-bold');
+		if (rule.italic) el.addClass('bt-italic');
+	}
+}
+
+function matchTarget(row: number, col: number, target: string): boolean {
+	const colWild = /^([A-Z]+)\*$/.exec(target);
+	if (colWild) {
+		const letter = colWild[1];
+		if (letter !== undefined) return colLetterToIndex(letter) === col;
+	}
+
+	const rowWild = /^\*(\d+)$/.exec(target);
+	if (rowWild) {
+		const n = rowWild[1];
+		if (n !== undefined) return parseInt(n) - 1 === row;
+	}
+
+	const rowRange = /^(\d+):(\d+)$/.exec(target);
+	if (rowRange) {
+		const n1 = rowRange[1], n2 = rowRange[2];
+		if (n1 !== undefined && n2 !== undefined) {
+			return row >= parseInt(n1) - 1 && row <= parseInt(n2) - 1;
+		}
+	}
+
+	const cellRange = /^([A-Z]+\d+):([A-Z]+\d+)$/.exec(target);
+	if (cellRange) {
+		const c1 = cellRange[1], c2 = cellRange[2];
+		if (c1 !== undefined && c2 !== undefined) {
+			const s = parseCellCoord(c1);
+			const e = parseCellCoord(c2);
+			if (s && e) {
+				return row >= s.row && row <= e.row && col >= s.col && col <= e.col;
+			}
+		}
+	}
+
+	const single = /^([A-Z]+)(\d+)$/.exec(target);
+	if (single) {
+		const letter = single[1], numStr = single[2];
+		if (letter !== undefined && numStr !== undefined) {
+			return colLetterToIndex(letter) === col && parseInt(numStr) - 1 === row;
+		}
+	}
+
+	return false;
+}
+
+function buildOccupied(model: TableModel): boolean[][] {
+	const numRows    = model.rows.length;
+	const numCols    = model.columns.length;
+	const hiddenRows = new Set(model.hiddenRows ?? []);
+	const grid: boolean[][] = Array.from({ length: numRows }, () =>
+		new Array(numCols).fill(false) as boolean[],
+	);
+	for (const m of model.merges) {
+		// If the merge origin is hidden, don't mark any cells as occupied —
+		// the covered cells should render as normal cells instead.
+		if (hiddenRows.has(m.startRow) || model.columns[m.startCol]?.hidden) continue;
+
+		for (let r = m.startRow; r <= Math.min(m.endRow, numRows - 1); r++) {
+			for (let c = m.startCol; c <= Math.min(m.endCol, numCols - 1); c++) {
+				if (r === m.startRow && c === m.startCol) continue;
+				(grid[r] as boolean[])[c] = true;
+			}
+		}
+	}
+	return grid;
+}
+
+/** Number of visible cells per row (visible cols + one indicator per hidden group). */
+function countVisibleCells(model: TableModel): number {
+	let count = 0;
+	let inHiddenGroup = false;
+	for (const col of model.columns) {
+		if (col.hidden) {
+			if (!inHiddenGroup) { count++; inHiddenGroup = true; }
+		} else {
+			count++;
+			inHiddenGroup = false;
+		}
+	}
+	return count;
+}
+
+function getMergeOrigin(row: number, col: number, merges: MergeRange[]): MergeRange | undefined {
+	return merges.find(m => m.startRow === row && m.startCol === col);
+}

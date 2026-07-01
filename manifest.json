@@ -1,11 +1,10 @@
 {
-	"id": "sample-plugin",
-	"name": "Sample Plugin",
-	"version": "1.0.0",
-	"minAppVersion": "1.0.0",
-	"description": "Demonstrates some of the capabilities of the Obsidian API.",
-	"author": "Obsidian",
-	"authorUrl": "https://obsidian.md",
-	"fundingUrl": "https://obsidian.md/pricing",
+	"id": "better-table",
+	"name": "Better Table",
+	"version": "0.1.0",
+	"minAppVersion": "1.8.7",
+	"description": "Rich tables with merges, styles, and choice columns inside fenced code blocks.",
+	"author": "sdking.xing",
+	"authorUrl": "https://github.com/SdKay",
 	"isDesktopOnly": false
 }
