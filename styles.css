@@ -215,9 +215,10 @@
 	background: var(--text-muted);
 }
 
-/* Drop indicators */
-.bt-drop-before {
-	border-top: 2px solid var(--interactive-accent) !important;
+/* Drop indicators — higher specificity to override table cell borders */
+.bt-table tr.bt-drop-before > td,
+.bt-table tr.bt-drop-before > th {
+	border-top: 2px solid var(--interactive-accent);
 }
 
 /* Dragging state */
