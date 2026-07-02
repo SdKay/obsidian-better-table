@@ -220,9 +220,9 @@ styles:
 
 ## 许可证
 
-**非商业用途**免费使用，遵循 [Polyform Noncommercial 1.0.0](https://polyformproject.org/licenses/noncommercial/1.0.0/) 协议。
+遵循 [AGPL-3.0](LICENSE) 协议，衍生作品须以相同协议开源。
 
-**商业用途**请联系授权：sdkxyx@gmail.com
+**商业授权**请联系：sdkxyx@gmail.com
 
 ## 支持与反馈
 
