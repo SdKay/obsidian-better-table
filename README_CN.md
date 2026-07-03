@@ -168,6 +168,18 @@ footer: "每周更新 · 点击任意单元格即可编辑"
 
 **商业授权**请联系：sdkxyx@gmail.com
 
+## Claude Code Skill
+
+仓库中附带了 [`SKILL.md`](SKILL.md)，可与 [Claude Code](https://claude.ai/code) 配合使用。安装后，Claude agent 可以直接在 vault 中创建和修改 `rich-table` 块——添加行、设置样式、定义合并——无需记忆语法。
+
+```bash
+cp SKILL.md ~/.claude/skills/rich-table/SKILL.md
+```
+
+之后告诉 Claude："在我的笔记里用 rich-table 创建一个项目看板"，它会自动生成对应的代码块。
+
+---
+
 ## 支持与反馈
 
 问题反馈与功能建议：[GitHub Issues](https://github.com/SdKay/obsidian-rich-table/issues)

@@ -168,6 +168,18 @@ Minimum Obsidian version: **1.8.7**
 
 For **commercial licensing**: sdkxyx@gmail.com
 
+## Claude Code Skill
+
+A [`SKILL.md`](SKILL.md) is included for use with [Claude Code](https://claude.ai/code). Once installed, Claude agents can create and modify `rich-table` blocks directly in your vault — adding rows, applying styles, defining merges — without you having to remember the syntax.
+
+```bash
+cp SKILL.md ~/.claude/skills/rich-table/SKILL.md
+```
+
+Then ask Claude: *"Create a project tracker table in my note using rich-table"*.
+
+---
+
 ## Feedback
 
 Issues and feature requests: [GitHub Issues](https://github.com/SdKay/obsidian-rich-table/issues)
