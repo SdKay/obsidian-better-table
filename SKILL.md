@@ -152,10 +152,19 @@ Excel-style, **1-indexed**. Row 1 = header row. Column A = first column.
 | `A1`      | Single cell (col A, row 1) | Header of first column |
 | `B3`      | Single cell (col B, row 3) | Second col, second data row |
 | `A1:C3`   | Rectangular range | Rows 1-3, cols A-C |
-| `B*`      | Entire column B | All rows in col B |
+| `B*`      | Entire column B (all rows, incl. future) | All rows in col B |
+| `A:C`     | Entire columns A–C (all rows) | Multi-column rule |
 | `*2`      | Entire row 2 | First data row, all columns |
-| `1:1`     | Row range (header only) | Just the header row |
+| `1:1`     | Row range — header only | Just the header row |
 | `2:5`     | Row range | Data rows 2-5 |
+
+**Style rule ordering matters — last rule wins per property.**  
+Rules apply in order; a later rule only overrides properties it explicitly sets. Put broad column/row rules **before** more-specific overrides so specific rules win on the header:
+```yaml
+styles:
+  - { target: "B*",  bg: "#eff6ff" }  # column first
+  - { target: "1:1", bg: "#1e293b", color: "#f1f5f9", bold: true }  # header last — wins
+```
 
 **Mapping between 1-indexed targets and 0-indexed model arrays:**
 - Target row 1 = `model.rows[0]` (header)

@@ -120,8 +120,10 @@ The block starts with an optional YAML header (title, columns, merges, styles, f
 | -------- | ------- |
 | `A1` | Cell — column A, row 1 (header) |
 | `A2:B4` | Range |
-| `B*` | Entire column B |
+| `B*` | Entire column B (all rows, including future ones) |
+| `A:C` | Entire columns A–C |
 | `*3` | Entire row 3 |
+| `1:1` | Entire header row |
 | `2:4` | Row range |
 
 ---
@@ -142,6 +144,8 @@ Custom types can be defined in **Settings → Rich Table**.
 
 **Styles**
 Set background color, text color, and font size on any cell, row, column, or range — either via the double-click panel or directly in the YAML `styles` field.
+
+Hover over the table to reveal selector strips: a thin bar above the header (columns A B C…) and to the left (row numbers 1 2 3…). Click or drag to select entire rows or columns and open a style panel that writes directly to semantic targets (`1:1`, `B*`, `A:C`) — so the rule applies to any columns or rows added in the future.
 
 **Merges**
 Drag-select across cells and click **Merge** in the popup. Or declare merges in YAML (e.g. `A2:B3`).
