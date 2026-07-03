@@ -2,6 +2,7 @@ import { App, Component, MarkdownRenderer, Menu, setIcon } from 'obsidian';
 import {
 	t, typeLabel,
 	hideRowsLabel, hideColsLabel, deleteRowsLabel, deleteColsLabel,
+	styleEntireRowsLabel, styleEntireColsLabel,
 } from './i18n';
 import { WikilinkInputSuggest } from './wikilinkInputSuggest';
 import type { ColumnDef, MergeRange, StyleRule, TableModel } from './model';
@@ -136,6 +137,30 @@ export async function renderTable(
 		})();
 
 		const isHeaderSel = r1 === 0 && r2 === 0;
+
+		// Semantic targets: map selection to whole-row / whole-column notation
+		const rowSemanticTarget = `${r1 + 1}:${r2 + 1}`;
+		const colSemanticTarget = c1 === c2
+			? `${colIndexToLetter(c1)}*`
+			: `${colIndexToLetter(c1)}:${colIndexToLetter(c2)}`;
+
+		const openSemanticPanel = (semanticTarget: string) => {
+			const rule = model.styles.find(s => s.target === semanticTarget);
+			const semanticExisting = { bg: rule?.bg, color: rule?.color, size: rule?.size };
+			window.setTimeout(() => {
+				openCellPanel({
+					anchor,
+					els: selectedEls,
+					styleTarget: semanticTarget,
+					existingStyle: semanticExisting,
+					inheritedStyle: {},
+					showTextColor: true,
+					cellOps: [],
+					onApplyStyle: (bg, color, size) => void onStructuralOp({ type: 'set-range-style', target: semanticTarget, bg, color, size }),
+				});
+			}, 0);
+		};
+
 		selectionPanel = openCellPanel({
 			anchor,
 			els: selectedEls,
@@ -145,6 +170,11 @@ export async function renderTable(
 			cellOps: [
 				{ icon: 'combine', label: t('mergeCells'),
 					action: () => void onStructuralOp({ type: 'merge-cells', startRow: r1, startCol: c1, endRow: r2, endCol: c2 }) },
+				// Semantic style buttons — write to row/col rules, not cell-range rules
+				{ icon: 'paintbrush', label: styleEntireRowsLabel(r1, r2),
+					action: () => openSemanticPanel(rowSemanticTarget) },
+				{ icon: 'paintbrush', label: styleEntireColsLabel(c1, c2, colIndexToLetter),
+					action: () => openSemanticPanel(colSemanticTarget) },
 				// Row ops only for data selections (header row cannot be hidden/deleted)
 				...(!isHeaderSel ? [
 					{ icon: 'eye-off' as const, label: hideRowsLabel(r1, r2),
@@ -644,6 +674,7 @@ function renderHeaderCell(
 			els: [el],
 			styleTarget: colIndexToLetter(colIdx) + '1',
 			existingStyle: cellEffectiveStyle(model, 0, colIdx),
+			inheritedStyle: cellInheritedStyle(model, 0, colIdx),
 			showTextColor: true,
 			cellOps: ops,
 			typeSection: onColTypeChange ? {
@@ -878,6 +909,7 @@ async function renderDataCell(
 					anchor: el, els: [el],
 					styleTarget: colIndexToLetter(colIdx) + (rowIdx + 1),
 					existingStyle: cellEffectiveStyle(model, rowIdx, colIdx),
+				inheritedStyle: cellInheritedStyle(model, rowIdx, colIdx),
 					showTextColor: !!getMergeOrigin(rowIdx, colIdx, model.merges),
 					cellOps: ops,
 					onApplyStyle: (bg, color, size) => void onStructuralOp({ type: 'set-cell-style', rowIdx, colIdx, bg, color, size }),
@@ -924,6 +956,7 @@ async function renderDataCell(
 				anchor: el, els: [el],
 				styleTarget: colIndexToLetter(colIdx) + (rowIdx + 1),
 				existingStyle: cellEffectiveStyle(model, rowIdx, colIdx),
+				inheritedStyle: cellInheritedStyle(model, rowIdx, colIdx),
 				showTextColor: true,
 				cellOps: ops,
 				onApplyStyle: (bg, color, size) => void onStructuralOp({ type: 'set-cell-style', rowIdx, colIdx, bg, color, size }),
@@ -986,6 +1019,7 @@ function renderDateCell(
 				anchor: el, els: [el],
 				styleTarget: colIndexToLetter(colIdx) + (rowIdx + 1),
 				existingStyle: cellEffectiveStyle(model, rowIdx, colIdx),
+				inheritedStyle: cellInheritedStyle(model, rowIdx, colIdx),
 				showTextColor: true,
 				cellOps: ops,
 				onApplyStyle: (bg, color, size) => void onStructuralOp({ type: 'set-cell-style', rowIdx, colIdx, bg, color, size }),
@@ -1002,11 +1036,12 @@ interface CellOpDef {
 }
 
 interface CellPanelConfig {
-	anchor:        HTMLElement;
-	els:           HTMLElement[];
-	styleTarget:   string;
-	existingStyle: { bg?: string; color?: string; size?: number };
-	showTextColor: boolean;
+	anchor:          HTMLElement;
+	els:             HTMLElement[];
+	styleTarget:     string;
+	existingStyle:   { bg?: string; color?: string; size?: number };
+	inheritedStyle?: { bg?: string; color?: string; size?: number };
+	showTextColor:   boolean;
 	cellOps:       CellOpDef[];
 	typeSection?:  {
 		colIdx:          number;
@@ -1024,6 +1059,28 @@ function cellEffectiveStyle(
 ): { bg?: string; color?: string; size?: number } {
 	const r: { bg?: string; color?: string; size?: number } = {};
 	for (const rule of model.styles) {
+		if (!matchTarget(rowIdx, colIdx, rule.target)) continue;
+		if (rule.bg)    r.bg    = rule.bg;
+		if (rule.color) r.color = rule.color;
+		if (rule.size)  r.size  = rule.size;
+	}
+	return r;
+}
+
+/**
+ * Style that a cell inherits from non-exact rules (rows, columns, ranges).
+ * Excludes any rule whose target matches this cell exactly (e.g. "B2").
+ * Used as the preview fallback when a panel checkbox is unchecked: the result
+ * after clearing the cell-specific override is this inherited value, not the
+ * theme default — so preview stays consistent with what Apply actually produces.
+ */
+function cellInheritedStyle(
+	model: TableModel, rowIdx: number, colIdx: number,
+): { bg?: string; color?: string; size?: number } {
+	const exactTarget = `${colIndexToLetter(colIdx)}${rowIdx + 1}`;
+	const r: { bg?: string; color?: string; size?: number } = {};
+	for (const rule of model.styles) {
+		if (rule.target === exactTarget) continue;
 		if (!matchTarget(rowIdx, colIdx, rule.target)) continue;
 		if (rule.bg)    r.bg    = rule.bg;
 		if (rule.color) r.color = rule.color;
@@ -1069,7 +1126,7 @@ function dataCellOps(
 
 /** Unified panel shown on double-click for all cell types (header / data / selection). */
 function openCellPanel(config: CellPanelConfig): HTMLElement {
-	const { anchor, els, existingStyle, showTextColor, cellOps, typeSection, onApplyStyle } = config;
+	const { anchor, els, existingStyle, inheritedStyle = {}, showTextColor, cellOps, typeSection, onApplyStyle } = config;
 
 	const saved = els.map(e => ({
 		bg:       e.style.getPropertyValue('background-color'),
@@ -1146,13 +1203,16 @@ function openCellPanel(config: CellPanelConfig): HTMLElement {
 	const applyBtn  = styleFoot.createEl('button', { cls: 'bt-sp-apply',     text: t('apply') });
 
 	const preview = () => {
-		const bv = bgEnable.checked ? bgPicker.value : null;
-		const cv = colorEnable?.checked && colorPicker ? colorPicker.value : null;
+		// When a checkbox is unchecked, fall back to the inherited value rather than
+		// removing the property. This matches what applyStyleRules produces after Apply:
+		// clearing a cell-specific rule doesn't suppress broader rules (1:1, B*, etc.).
+		const bv = bgEnable.checked ? bgPicker.value : (inheritedStyle.bg ?? null);
+		const cv = colorEnable?.checked && colorPicker ? colorPicker.value : (inheritedStyle.color ?? null);
 		const ss = sizeInput.value.trim();
-		const sv = ss ? `${parseInt(ss, 10)}px` : null;
+		const sv = ss ? `${parseInt(ss, 10)}px` : (inheritedStyle.size ? `${inheritedStyle.size}px` : null);
 		for (const e of els) {
-			if (bv)    e.style.setProperty('background-color', bv);          else e.style.removeProperty('background-color');
-			if (cv)    e.style.setProperty('color', cv);                    else e.style.removeProperty('color');
+			if (bv)    e.style.setProperty('background-color', bv);  else e.style.removeProperty('background-color');
+			if (cv)    e.style.setProperty('color', cv);             else e.style.removeProperty('color');
 			if (sv) {
 				e.style.setProperty('font-size', sv);
 				e.style.setProperty('--bt-cell-font-size', sv);
@@ -1577,6 +1637,17 @@ function matchTarget(row: number, col: number, target: string): boolean {
 		const n1 = rowRange[1], n2 = rowRange[2];
 		if (n1 !== undefined && n2 !== undefined) {
 			return row >= parseInt(n1) - 1 && row <= parseInt(n2) - 1;
+		}
+	}
+
+	// A:B → column range (all rows in columns A through B)
+	const colRange = /^([A-Z]+):([A-Z]+)$/.exec(target);
+	if (colRange) {
+		const letter1 = colRange[1], letter2 = colRange[2];
+		if (letter1 !== undefined && letter2 !== undefined) {
+			const c1 = colLetterToIndex(letter1);
+			const c2 = colLetterToIndex(letter2);
+			return col >= Math.min(c1, c2) && col <= Math.max(c1, c2);
 		}
 	}
 

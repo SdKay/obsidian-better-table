@@ -361,6 +361,19 @@ function mapTarget(
 		return `${nr1}:${nr2}`;
 	}
 
+	// A:B → column range (all rows in columns A through B)
+	const colRange = /^([A-Z]+):([A-Z]+)$/.exec(target);
+	if (colRange) {
+		const c1 = colLetterToIndex(colRange[1] ?? '');
+		const c2 = colLetterToIndex(colRange[2] ?? '');
+		const m1 = fn(1, c1); // dummy row; only c matters
+		const m2 = fn(1, c2);
+		const nc1 = m1 ? m1.c : (c1 < (m2?.c ?? c2) ? c1 : null);
+		const nc2 = m2 ? m2.c : null;
+		if (nc1 === null || nc2 === null || nc1 > nc2) return '';
+		return `${colIndexToLetter(nc1)}:${colIndexToLetter(nc2)}`;
+	}
+
 	// A1:B3 → cell range
 	const cellRange = /^([A-Z]+)(\d+):([A-Z]+)(\d+)$/.exec(target);
 	if (cellRange) {

@@ -122,6 +122,18 @@ export function deleteColsLabel(c1: number, c2: number, letter: (i: number) => s
 		: `Delete ${colRangeLabel(c1, c2, letter)}`;
 }
 
+export function styleEntireRowsLabel(r1: number, r2: number): string {
+	return isZh()
+		? `设置${rowRangeLabel(r1, r2)}整行样式`
+		: `Style entire ${rowRangeLabel(r1, r2)}`;
+}
+
+export function styleEntireColsLabel(c1: number, c2: number, letter: (i: number) => string): string {
+	return isZh()
+		? `设置${colRangeLabel(c1, c2, letter)}整列样式`
+		: `Style entire ${colRangeLabel(c1, c2, letter)}`;
+}
+
 export function typeLabel(currentType?: string): string {
 	if (!currentType) return t('setType');
 	return isZh() ? `类型：${currentType}` : `Type: ${currentType}`;
