@@ -137,30 +137,6 @@ export async function renderTable(
 		})();
 
 		const isHeaderSel = r1 === 0 && r2 === 0;
-
-		// Semantic targets: map selection to whole-row / whole-column notation
-		const rowSemanticTarget = `${r1 + 1}:${r2 + 1}`;
-		const colSemanticTarget = c1 === c2
-			? `${colIndexToLetter(c1)}*`
-			: `${colIndexToLetter(c1)}:${colIndexToLetter(c2)}`;
-
-		const openSemanticPanel = (semanticTarget: string) => {
-			const rule = model.styles.find(s => s.target === semanticTarget);
-			const semanticExisting = { bg: rule?.bg, color: rule?.color, size: rule?.size };
-			window.setTimeout(() => {
-				openCellPanel({
-					anchor,
-					els: selectedEls,
-					styleTarget: semanticTarget,
-					existingStyle: semanticExisting,
-					inheritedStyle: {},
-					showTextColor: true,
-					cellOps: [],
-					onApplyStyle: (bg, color, size) => void onStructuralOp({ type: 'set-range-style', target: semanticTarget, bg, color, size }),
-				});
-			}, 0);
-		};
-
 		selectionPanel = openCellPanel({
 			anchor,
 			els: selectedEls,
@@ -170,11 +146,6 @@ export async function renderTable(
 			cellOps: [
 				{ icon: 'combine', label: t('mergeCells'),
 					action: () => void onStructuralOp({ type: 'merge-cells', startRow: r1, startCol: c1, endRow: r2, endCol: c2 }) },
-				// Semantic style buttons — write to row/col rules, not cell-range rules
-				{ icon: 'paintbrush', label: styleEntireRowsLabel(r1, r2),
-					action: () => openSemanticPanel(rowSemanticTarget) },
-				{ icon: 'paintbrush', label: styleEntireColsLabel(c1, c2, colIndexToLetter),
-					action: () => openSemanticPanel(colSemanticTarget) },
 				// Row ops only for data selections (header row cannot be hidden/deleted)
 				...(!isHeaderSel ? [
 					{ icon: 'eye-off' as const, label: hideRowsLabel(r1, r2),
@@ -498,6 +469,163 @@ export async function renderTable(
 				addRowBtn.removeClass('bt-strip-visible');
 				addColBtn.removeClass('bt-strip-visible');
 			}
+		}, { passive: true, capture: true });
+	}
+
+	// ── Row / column selector strips (Excel-style whole-row/column selection) ──
+	if (onStructuralOp) {
+		const colSel = activeDocument.body.createDiv({ cls: 'bt-col-selector' });
+		const rowSel = activeDocument.body.createDiv({ cls: 'bt-row-selector' });
+		component.register(() => { colSel.remove(); rowSel.remove(); });
+
+		let selAxis: 'col' | 'row' | null = null;
+		let selI1 = -1, selI2 = -1;
+
+		const rebuild = () => {
+			const tbl = table.getBoundingClientRect();
+
+			// Column selector (above header row)
+			colSel.empty();
+			colSel.setCssProps({ '--cs-top': `${tbl.top - 22}px`, '--cs-left': `${tbl.left}px`, '--cs-w': `${tbl.width}px` });
+			for (const th of Array.from(thead.querySelectorAll<HTMLElement>('th[data-col]'))) {
+				const r = th.getBoundingClientRect();
+				const ci = parseInt(th.dataset.col ?? '-1');
+				if (ci < 0) continue;
+				const cell = colSel.createDiv({ cls: 'bt-sel-cell' });
+				cell.dataset.idx = String(ci);
+				cell.setText(colIndexToLetter(ci));
+				cell.setCssProps({ '--cl': `${r.left - tbl.left}px`, '--cw': `${r.width}px` });
+				if (selAxis === 'col') {
+					const lo = Math.min(selI1, selI2), hi = Math.max(selI1, selI2);
+					if (ci >= lo && ci <= hi) cell.addClass('is-sel');
+				}
+			}
+
+			// Row selector (left of table)
+			rowSel.empty();
+			rowSel.setCssProps({ '--rs-top': `${tbl.top}px`, '--rs-left': `${tbl.left - 22}px`, '--rs-h': `${tbl.height}px` });
+			const allTrs = [
+				...Array.from(thead.querySelectorAll<HTMLElement>('tr')),
+				...Array.from(tbody.querySelectorAll<HTMLElement>('tr:not(.bt-row-indicator)')),
+			];
+			for (const tr of allTrs) {
+				const firstCell = tr.querySelector<HTMLElement>('[data-row]');
+				if (!firstCell) continue;
+				const ri = parseInt(firstCell.dataset.row ?? '-1');
+				if (ri < 0) continue;
+				const r = tr.getBoundingClientRect();
+				const cell = rowSel.createDiv({ cls: 'bt-sel-cell' });
+				cell.dataset.idx = String(ri);
+				cell.setText(String(ri + 1));
+				cell.setCssProps({ '--rt': `${r.top - tbl.top}px`, '--rh': `${r.height}px` });
+				if (selAxis === 'row') {
+					const lo = Math.min(selI1, selI2), hi = Math.max(selI1, selI2);
+					if (ri >= lo && ri <= hi) cell.addClass('is-sel');
+				}
+			}
+		};
+
+		let selHideTimer: number | null = null;
+		const showSel = () => {
+			if (selHideTimer) { window.clearTimeout(selHideTimer); selHideTimer = null; }
+			rebuild();
+			colSel.addClass('bt-strip-visible');
+			rowSel.addClass('bt-strip-visible');
+		};
+		const scheduleSelHide = () => {
+			if (selAxis !== null) return;
+			if (selHideTimer) window.clearTimeout(selHideTimer);
+			selHideTimer = window.setTimeout(() => {
+				colSel.removeClass('bt-strip-visible');
+				rowSel.removeClass('bt-strip-visible');
+				selHideTimer = null;
+			}, 80);
+		};
+
+		table.addEventListener('mouseenter', showSel);
+		table.addEventListener('mouseleave', scheduleSelHide);
+		colSel.addEventListener('mouseenter', () => { if (selHideTimer) { window.clearTimeout(selHideTimer); selHideTimer = null; } });
+		colSel.addEventListener('mouseleave', scheduleSelHide);
+		rowSel.addEventListener('mouseenter', () => { if (selHideTimer) { window.clearTimeout(selHideTimer); selHideTimer = null; } });
+		rowSel.addEventListener('mouseleave', scheduleSelHide);
+
+		const startDrag = (axis: 'col' | 'row', idx: number, e: PointerEvent, wrap: HTMLElement) => {
+			e.stopPropagation(); e.preventDefault();
+			wrap.setPointerCapture(e.pointerId);
+			selAxis = axis; selI1 = selI2 = idx;
+			rebuild();
+		};
+		const moveDrag = (axis: 'col' | 'row', e: PointerEvent) => {
+			if (selAxis !== axis) return;
+			const wrap = axis === 'col' ? colSel : rowSel;
+			for (const cell of Array.from(wrap.querySelectorAll<HTMLElement>('[data-idx]'))) {
+				const r = cell.getBoundingClientRect();
+				const hit = axis === 'col'
+					? e.clientX >= r.left && e.clientX <= r.right
+					: e.clientY >= r.top  && e.clientY <= r.bottom;
+				if (hit) {
+					const idx = parseInt(cell.dataset.idx ?? '-1');
+					if (idx >= 0 && idx !== selI2) { selI2 = idx; rebuild(); }
+					break;
+				}
+			}
+		};
+		const endDrag = (axis: 'col' | 'row') => {
+			if (selAxis !== axis) return;
+			const lo = Math.min(selI1, selI2), hi = Math.max(selI1, selI2);
+			const target = axis === 'col'
+				? (lo === hi ? `${colIndexToLetter(lo)}*` : `${colIndexToLetter(lo)}:${colIndexToLetter(hi)}`)
+				: `${lo + 1}:${hi + 1}`;
+
+			// Collect cells for live preview
+			const els: HTMLElement[] = axis === 'col'
+				? (() => { const a: HTMLElement[] = []; for (let ci = lo; ci <= hi; ci++) a.push(...Array.from(table.querySelectorAll<HTMLElement>(`[data-col="${ci}"]`))); return a; })()
+				: Array.from(table.querySelectorAll<HTMLElement>('[data-row]')).filter(e => { const r = parseInt(e.dataset.row ?? '-1'); return r >= lo && r <= hi; });
+
+			const anchor = axis === 'col'
+				? (table.querySelector<HTMLElement>(`th[data-col="${hi}"]`) ?? table)
+				: (table.querySelector<HTMLElement>(`[data-row="${hi}"]`) ?? table);
+
+			const rule = model.styles.find(s => s.target === target);
+			const existing = { bg: rule?.bg, color: rule?.color, size: rule?.size };
+
+			selAxis = null; selI1 = selI2 = -1;
+			rebuild();
+
+			const label = axis === 'col'
+				? styleEntireColsLabel(lo, hi, colIndexToLetter)
+				: styleEntireRowsLabel(lo, hi);
+
+			openCellPanel({
+				anchor, els,
+				styleTarget: target,
+				existingStyle: existing,
+				inheritedStyle: {},
+				showTextColor: true,
+				cellOps: [{ icon: 'info', label, action: () => { /* info only */ } }],
+				onApplyStyle: (bg, color, size) => void onStructuralOp({ type: 'set-range-style', target, bg, color, size }),
+			});
+		};
+
+		colSel.addEventListener('pointerdown', (e: PointerEvent) => {
+			const cell = (e.target as HTMLElement).closest<HTMLElement>('[data-idx]');
+			const idx = parseInt(cell?.dataset.idx ?? '-1');
+			if (idx >= 0) startDrag('col', idx, e, colSel);
+		});
+		colSel.addEventListener('pointermove', (e: PointerEvent) => moveDrag('col', e));
+		colSel.addEventListener('pointerup', () => endDrag('col'));
+
+		rowSel.addEventListener('pointerdown', (e: PointerEvent) => {
+			const cell = (e.target as HTMLElement).closest<HTMLElement>('[data-idx]');
+			const idx = parseInt(cell?.dataset.idx ?? '-1');
+			if (idx >= 0) startDrag('row', idx, e, rowSel);
+		});
+		rowSel.addEventListener('pointermove', (e: PointerEvent) => moveDrag('row', e));
+		rowSel.addEventListener('pointerup', () => endDrag('row'));
+
+		component.registerDomEvent(activeDocument, 'scroll', () => {
+			if (!colSel.hasClass('bt-strip-visible')) return;
+			rebuild();
 		}, { passive: true, capture: true });
 	}
 }

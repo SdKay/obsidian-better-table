@@ -98,6 +98,69 @@
 	background: var(--interactive-accent-hover);
 }
 
+/* ── Row / column selector strips (Excel-style whole-row/col selection) ─── */
+.bt-col-selector,
+.bt-row-selector {
+	position: fixed;
+	z-index: var(--layer-popover);
+	visibility: hidden;
+	pointer-events: none;
+	opacity: 0;
+	transition: opacity 0.08s;
+}
+.bt-col-selector.bt-strip-visible,
+.bt-row-selector.bt-strip-visible {
+	visibility: visible;
+	pointer-events: auto;
+	opacity: 1;
+}
+.bt-col-selector {
+	top:  var(--cs-top,  0px);
+	left: var(--cs-left, 0px);
+	width:  var(--cs-w, 100px);
+	height: 20px;
+}
+.bt-row-selector {
+	top:  var(--rs-top, 0px);
+	left: var(--rs-left, 0px);
+	width:  20px;
+	height: var(--rs-h, 100px);
+}
+.bt-sel-cell {
+	position: absolute;
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	font-size: 10px;
+	font-weight: var(--font-semibold);
+	color: var(--text-faint);
+	background: var(--background-secondary);
+	border: 1px solid var(--background-modifier-border);
+	border-radius: 3px;
+	cursor: pointer;
+	user-select: none;
+	transition: background 80ms, color 80ms;
+}
+.bt-sel-cell:hover {
+	background: color-mix(in srgb, var(--interactive-accent) 15%, var(--background-secondary));
+	color: var(--text-normal);
+}
+.bt-sel-cell.is-sel {
+	background: var(--interactive-accent);
+	color: var(--text-on-accent);
+	border-color: var(--interactive-accent);
+}
+.bt-col-selector .bt-sel-cell {
+	top: 0; height: 18px;
+	left:  var(--cl, 0px);
+	width: var(--cw, 60px);
+}
+.bt-row-selector .bt-sel-cell {
+	left: 0; width: 18px;
+	top:    var(--rt, 0px);
+	height: var(--rh, 30px);
+}
+
 /* ── Edge-hover add strips (position:fixed, works in all rendering modes) ── */
 .bt-edge-add-row,
 .bt-edge-add-col {
