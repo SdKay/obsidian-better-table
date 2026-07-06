@@ -421,6 +421,13 @@ export async function renderTable(
 		}
 	}
 
+	// Shared show/hide hooks for the two hover overlays (edge-add strips + selector
+	// strips). Assigned inside their blocks; driven by one proximity handler below.
+	let showEdgeStrips = () => { /* assigned in edge block */ };
+	let hideEdgeStrips = () => { /* assigned in edge block */ };
+	let showSelectors  = () => { /* assigned in selector block */ };
+	let hideSelectors  = () => { /* assigned in selector block */ };
+
 	// ── Edge-hover add strips (fixed-position, works in both editing & reading mode) ──
 	if (onStructuralOp) {
 		const addRowBtn = activeDocument.body.createDiv({ cls: 'bt-edge-add-row' });
@@ -464,17 +471,13 @@ export async function renderTable(
 			if (hideTimer !== null) { window.clearTimeout(hideTimer); hideTimer = null; }
 		};
 
-		table.addEventListener('mouseenter', () => {
+		showEdgeStrips = () => {
 			cancelHide();
 			positionStrips();
 			addRowBtn.addClass('bt-strip-visible');
 			addColBtn.addClass('bt-strip-visible');
-		});
-		table.addEventListener('mouseleave', scheduleHide);
-		addRowBtn.addEventListener('mouseenter', cancelHide);
-		addRowBtn.addEventListener('mouseleave', scheduleHide);
-		addColBtn.addEventListener('mouseenter', cancelHide);
-		addColBtn.addEventListener('mouseleave', scheduleHide);
+		};
+		hideEdgeStrips = scheduleHide;
 
 		// On scroll: reposition strips if visible, hide if table left the viewport
 		component.registerDomEvent(activeDocument, 'scroll', () => {
@@ -496,6 +499,41 @@ export async function renderTable(
 		const colSel = activeDocument.body.createDiv({ cls: 'bt-col-selector' });
 		const rowSel = activeDocument.body.createDiv({ cls: 'bt-row-selector' });
 		component.register(() => { colSel.remove(); rowSel.remove(); });
+
+		// Persistent resize handles on the selector strips — one per visible column
+		// and per row. Created ONCE (not in rebuild) to avoid listener leaks; rebuild
+		// only repositions them. These work even when the first row/column is merged,
+		// because they are positioned from <col>/<tr> geometry, not from cell edges.
+		const colResizeHandles = new Map<number, HTMLElement>();
+		model.columns.forEach((c, ci) => {
+			if (c.hidden) return;
+			const h = colSel.createDiv({ cls: 'bt-sel-resize-col', attr: { 'aria-hidden': 'true' } });
+			setupColResize(h, table, ci, getRegistry, model, onStructuralOp, component);
+			colResizeHandles.set(ci, h);
+		});
+		const rowResizeHandles = new Map<number, HTMLElement>();
+		model.rows.forEach((_row, ri) => {
+			const h = rowSel.createDiv({ cls: 'bt-sel-resize-row', attr: { 'aria-hidden': 'true' } });
+			bindResizeHandle(
+				h, table, `data-row="${ri}"`, '--bt-row-height', 24,
+				(height) => void onStructuralOp({ type: 'set-row-height', rowIdx: ri, height }),
+				component,
+				() => {
+					const r = table.getBoundingClientRect();
+					activeDocument.body.querySelector<HTMLElement>('.bt-edge-add-row.bt-strip-visible')
+						?.setCssProps({ '--strip-top': `${r.bottom + 2}px`, '--strip-left': `${r.left}px`, '--strip-width': `${r.width}px` });
+					activeDocument.body.querySelector<HTMLElement>('.bt-edge-add-col.bt-strip-visible')
+						?.setCssProps({ '--strip-top': `${r.top}px`, '--strip-left': `${r.right + 2}px`, '--strip-height': `${r.height}px` });
+				},
+			);
+			h.addEventListener('dblclick', (e: MouseEvent) => {
+				e.stopPropagation();
+				e.preventDefault();
+				const fit = autoFitRowHeight(table, ri, 24);
+				void onStructuralOp({ type: 'set-row-height', rowIdx: ri, height: fit });
+			});
+			rowResizeHandles.set(ri, h);
+		});
 
 		let selAxis: 'col' | 'row' | null = null;
 		let selI1 = -1, selI2 = -1;
@@ -523,8 +561,9 @@ export async function renderTable(
 			updateTableHighlights();
 			const tbl = table.getBoundingClientRect();
 
-			// Column selector (above header row) — iterate ALL header cells to include hidden groups
-			colSel.empty();
+			// Column selector (above header row) — iterate ALL header cells to include hidden groups.
+			// Remove only label cells; the persistent resize handles stay.
+			colSel.querySelectorAll('.bt-sel-cell').forEach(e => e.remove());
 			colSel.setCssProps({ '--cs-top': `${tbl.top - 22}px`, '--cs-left': `${tbl.left}px`, '--cs-w': `${tbl.width}px` });
 			for (const th of Array.from(thead.querySelectorAll<HTMLElement>('th'))) {
 				const r = th.getBoundingClientRect();
@@ -550,8 +589,9 @@ export async function renderTable(
 				}
 			}
 
-			// Row selector (left of table) — iterate ALL rows to include hidden-row indicators
-			rowSel.empty();
+			// Row selector (left of table) — iterate ALL rows to include hidden-row indicators.
+			// Remove only label cells; the persistent resize handles stay.
+			rowSel.querySelectorAll('.bt-sel-cell').forEach(e => e.remove());
 			rowSel.setCssProps({ '--rs-top': `${tbl.top}px`, '--rs-left': `${tbl.left - 22}px`, '--rs-h': `${tbl.height}px` });
 			const allTrs = [
 				...Array.from(thead.querySelectorAll<HTMLElement>('tr')),
@@ -582,6 +622,28 @@ export async function renderTable(
 					}
 				}
 			}
+
+			// Reposition persistent resize handles from live <col>/<tr> geometry.
+			// Column right edges: cumulative sum of <col> widths.
+			let cx = 0;
+			for (const c of Array.from(table.querySelectorAll<HTMLElement>('col'))) {
+				cx += parseInt(c.style.width) || 0;
+				const dc = c.dataset.col;
+				if (dc === undefined) continue;
+				const h = colResizeHandles.get(parseInt(dc));
+				if (h) h.setCssProps({ '--rx': `${cx}px` });
+			}
+			// Row bottom edges: from each tr's rect.
+			for (const [ri, h] of rowResizeHandles) {
+				const firstCell = table.querySelector<HTMLElement>(`[data-row="${ri}"]`);
+				const tr = firstCell?.closest('tr');
+				if (tr) {
+					h.setCssProps({ '--ry': `${tr.getBoundingClientRect().bottom - tbl.top}px` });
+					h.removeClass('bt-sel-resize-hidden');
+				} else {
+					h.addClass('bt-sel-resize-hidden'); // row hidden — hide its handle
+				}
+			}
 		};
 
 		let selHideTimer: number | null = null;
@@ -601,12 +663,8 @@ export async function renderTable(
 			}, 80);
 		};
 
-		table.addEventListener('mouseenter', showSel);
-		table.addEventListener('mouseleave', scheduleSelHide);
-		colSel.addEventListener('mouseenter', () => { if (selHideTimer) { window.clearTimeout(selHideTimer); selHideTimer = null; } });
-		colSel.addEventListener('mouseleave', scheduleSelHide);
-		rowSel.addEventListener('mouseenter', () => { if (selHideTimer) { window.clearTimeout(selHideTimer); selHideTimer = null; } });
-		rowSel.addEventListener('mouseleave', scheduleSelHide);
+		showSelectors = showSel;
+		hideSelectors = scheduleSelHide;
 
 		let selectorPanel: HTMLElement | null = null;
 		const closeSelectorPanel = () => {
@@ -715,6 +773,26 @@ export async function renderTable(
 		table.addEventListener('bt-layout-changed', () => {
 			if (colSel.hasClass('bt-strip-visible') || rowSel.hasClass('bt-strip-visible')) rebuild();
 		});
+
+		// ── Proximity-based reveal ──────────────────────────────────────────────
+		// Show both overlays when the pointer approaches the table (not only when it
+		// enters it), so the top/left selector strips and the bottom/right add strips
+		// appear as the cursor gets near from outside. Transition-based to avoid churn.
+		const NEAR_MARGIN = 34;
+		let wasNear = false;
+		let proxRaf = 0;
+		component.registerDomEvent(activeDocument, 'mousemove', (e: MouseEvent) => {
+			const x = e.clientX, y = e.clientY; // capture before rAF
+			if (proxRaf) return;
+			proxRaf = window.requestAnimationFrame(() => {
+				proxRaf = 0;
+				const r = table.getBoundingClientRect();
+				const near = x >= r.left - NEAR_MARGIN && x <= r.right + NEAR_MARGIN &&
+				             y >= r.top - NEAR_MARGIN && y <= r.bottom + NEAR_MARGIN;
+				if (near && !wasNear) { showEdgeStrips(); showSelectors(); wasNear = true; }
+				else if (!near && wasNear) { hideEdgeStrips(); hideSelectors(); wasNear = false; }
+			});
+		}, { passive: true });
 	}
 }
 
@@ -833,32 +911,7 @@ async function renderRow(
 			renderHeaderCell(el, value, col, colIdx, getRegistry, app, sourcePath, model, component, onCellChange, onColTypeChange, onStructuralOp);
 		} else {
 			await renderDataCell(el, value, col, rowIdx, colIdx, registry, app, sourcePath, component, model, onCellChange, onStructuralOp);
-			// Row-height resize handle on bottom edge of the first visible cell
-			if (onStructuralOp && isFirstVisible) {
-				const rowHandle = el.createDiv({ cls: 'bt-row-resize-handle', attr: { 'aria-hidden': 'true' } });
-				const tbl = tr.closest<HTMLElement>('table') ?? el;
-				bindResizeHandle(
-					rowHandle, tbl,
-					`data-row="${rowIdx}"`, '--bt-row-height', 24,
-					(h) => void onStructuralOp({ type: 'set-row-height', rowIdx, height: h }),
-					component,
-					/* onDrag — reposition edge strips to follow the new table bottom */
-					() => {
-						const r = tbl.getBoundingClientRect();
-						const rowStrip = activeDocument.body.querySelector<HTMLElement>('.bt-edge-add-row.bt-strip-visible');
-						const colStrip = activeDocument.body.querySelector<HTMLElement>('.bt-edge-add-col.bt-strip-visible');
-						rowStrip?.setCssProps({ '--strip-top': `${r.bottom + 2}px`, '--strip-left': `${r.left}px`, '--strip-width': `${r.width}px` });
-						colStrip?.setCssProps({ '--strip-top': `${r.top}px`, '--strip-left': `${r.right + 2}px`, '--strip-height': `${r.height}px` });
-					},
-				);
-				// Double-click the seam → auto-fit this row's height to its content
-				rowHandle.addEventListener('dblclick', (e: MouseEvent) => {
-					e.stopPropagation();
-					e.preventDefault();
-					const fit = autoFitRowHeight(tbl, rowIdx, 24);
-					void onStructuralOp({ type: 'set-row-height', rowIdx, height: fit });
-				});
-			}
+			// Row-height resize is handled by the selector-strip handles (works with merges too)
 		}
 		c++;
 	}
@@ -940,115 +993,7 @@ function renderHeaderCell(
 		if (el.hasClass('bt-editing')) return;
 		openPanel(evt);
 	});
-
-	// Column-width resize handle on right edge of header cell
-	if (onStructuralOp) {
-		const handle = el.createDiv({ cls: 'bt-col-resize-handle', attr: { 'aria-hidden': 'true' } });
-		const tbl = el.closest<HTMLElement>('table');
-		if (tbl) {
-			const thisCol  = tbl.querySelector<HTMLElement>(`col[data-col="${colIdx}"]`);
-			const allCols  = Array.from(tbl.querySelectorAll<HTMLElement>('col[data-col]'));
-			const nextCol  = allCols.find(c => parseInt(c.dataset.col ?? '-1') > colIdx) ?? null;
-
-			if (thisCol) {
-				// Shared hover+drag indicator line
-				let colLine: HTMLElement | null = null;
-				let colDragging = false;
-				const hideColLine = () => { colLine?.remove(); colLine = null; };
-				component.register(hideColLine);
-
-				const makeColLine = (tblRect: DOMRect): HTMLElement => {
-					const line = activeDocument.body.createDiv({ cls: 'bt-resize-indicator bt-resize-indicator-col' });
-					line.setCssProps({
-						'--ri-x':      `${el.getBoundingClientRect().right}px`,
-						'--ri-top':    `${tblRect.top}px`,
-						'--ri-height': `${tblRect.height}px`,
-					});
-					return line;
-				};
-
-				handle.addEventListener('mouseenter', () => {
-					if (colLine || colDragging) return;
-					colLine = makeColLine(tbl.getBoundingClientRect());
-					colLine.setCssProps({ '--bt-ri-opacity': '0.4' });
-				});
-				handle.addEventListener('mouseleave', () => {
-					if (!colDragging) hideColLine();
-				});
-
-				// Double-click the seam → auto-fit this column's width to its content
-				handle.addEventListener('dblclick', (e: MouseEvent) => {
-					e.stopPropagation();
-					e.preventDefault();
-					hideColLine();
-					const fit = autoFitColWidth(tbl, colIdx, colMinWidth(col, getRegistry()));
-					void onStructuralOp({ type: 'set-col-width', colIdx, width: fit });
-				});
-
-				handle.addEventListener('pointerdown', (e: PointerEvent) => {
-					if (e.button !== 0) return;
-					e.stopPropagation();
-					e.preventDefault();
-					handle.setPointerCapture(e.pointerId);
-					colDragging = true;
-
-					const startX     = e.clientX;
-					const startW     = parseInt(thisCol.style.width) || (col.width ?? 120);
-					const startNextW = nextCol ? (parseInt(nextCol.style.width) || 120) : null;
-					const nextColIdx = nextCol ? parseInt(nextCol.dataset.col ?? '-1') : -1;
-					const MIN        = colMinWidth(col, getRegistry());
-					const tblRect    = tbl.getBoundingClientRect();
-
-					// Upgrade hover line or create fresh one at full drag opacity
-					if (colLine) colLine.setCssProps({ '--bt-ri-opacity': '0.75' });
-					else { colLine = makeColLine(tblRect); colLine.setCssProps({ '--bt-ri-opacity': '0.75' }); }
-
-					const onMove = (ev: PointerEvent) => {
-						const delta = ev.clientX - startX;
-						const newW  = Math.max(MIN, startW + delta);
-						thisCol.style.setProperty('width', `${newW}px`);
-						if (nextCol && startNextW !== null) {
-							const nextMIN = nextColIdx >= 0
-								? colMinWidth(model.columns[nextColIdx] ?? { name: '' }, getRegistry())
-								: 40;
-							nextCol.style.setProperty('width', `${Math.max(nextMIN, startNextW - delta)}px`);
-						}
-						// Re-pin the table to the new sum of column widths so table-layout:fixed
-						// does not redistribute leftover width (which would make the preview
-						// differ from the committed result, e.g. when resizing the last column).
-						const sum = Array.from(tbl.querySelectorAll<HTMLElement>('col'))
-							.reduce((s, c) => s + (parseInt(c.style.width) || 0), 0);
-						tbl.style.setProperty('width', `${sum}px`);
-
-						if (colLine) colLine.setCssProps({ '--ri-x': `${el.getBoundingClientRect().right}px` });
-						// Table width/height may change → reposition edge strips and selector strips
-						const r = tbl.getBoundingClientRect();
-						activeDocument.body.querySelector<HTMLElement>('.bt-edge-add-row.bt-strip-visible')
-							?.setCssProps({ '--strip-top': `${r.bottom + 2}px`, '--strip-left': `${r.left}px`, '--strip-width': `${r.width}px` });
-						activeDocument.body.querySelector<HTMLElement>('.bt-edge-add-col.bt-strip-visible')
-							?.setCssProps({ '--strip-top': `${r.top}px`, '--strip-left': `${r.right + 2}px`, '--strip-height': `${r.height}px` });
-						tbl.dispatchEvent(new CustomEvent('bt-layout-changed'));
-					};
-
-					const onUp = (ev: PointerEvent) => {
-						handle.removeEventListener('pointermove', onMove);
-						colDragging = false;
-						hideColLine();
-						const delta = ev.clientX - startX;
-						if (delta === 0) return;
-						void onStructuralOp({ type: 'set-col-width', colIdx, width: Math.max(MIN, startW + delta) });
-						if (nextCol && startNextW !== null && nextColIdx >= 0) {
-							const nextMIN = colMinWidth(model.columns[nextColIdx] ?? { name: '' }, getRegistry());
-							void onStructuralOp({ type: 'set-col-width', colIdx: nextColIdx, width: Math.max(nextMIN, startNextW - delta) });
-						}
-					};
-
-					handle.addEventListener('pointermove', onMove);
-					handle.addEventListener('pointerup', onUp, { once: true });
-				});
-			}
-		}
-	}
+	// Column resize is handled by the selector-strip handles (works with merges too)
 }
 
 async function renderDataCell(
@@ -1816,6 +1761,129 @@ function autoFitColWidth(tbl: HTMLElement, colIdx: number, minW: number): number
 	return Math.ceil(max);
 }
 
+/** Viewport x of a column's right edge, summing <col> widths in DOM order. */
+function colRightX(tbl: HTMLElement, colIdx: number): number {
+	let x = tbl.getBoundingClientRect().left;
+	for (const c of Array.from(tbl.querySelectorAll<HTMLElement>('col'))) {
+		x += parseInt(c.style.width) || 0;
+		if (c.dataset.col !== undefined && parseInt(c.dataset.col) === colIdx) break;
+	}
+	return x;
+}
+
+/**
+ * Wire a handle element to resize column `colIdx`: hover/drag indicator line,
+ * live <col> width update, table-width re-pin, double-click auto-fit, and commit.
+ * The boundary is computed from <col> geometry (colRightX) so it works even when
+ * the column is covered by a header merge and has no individual header cell.
+ */
+function setupColResize(
+	handle: HTMLElement,
+	tbl: HTMLElement,
+	colIdx: number,
+	getRegistry: () => ChoiceRegistry,
+	model: TableModel,
+	onStructuralOp: StructuralOpHandler,
+	component?: Component,
+): void {
+	const col = model.columns[colIdx];
+	const thisCol = tbl.querySelector<HTMLElement>(`col[data-col="${colIdx}"]`);
+	if (!col || !thisCol) return;
+	const allCols = Array.from(tbl.querySelectorAll<HTMLElement>('col[data-col]'));
+	const nextCol = allCols.find(c => parseInt(c.dataset.col ?? '-1') > colIdx) ?? null;
+
+	handle.addEventListener('click', e => e.stopPropagation());
+
+	let colLine: HTMLElement | null = null;
+	let colDragging = false;
+	const hideColLine = () => { colLine?.remove(); colLine = null; };
+	component?.register(hideColLine);
+
+	const makeColLine = (tblRect: DOMRect): HTMLElement => {
+		const line = activeDocument.body.createDiv({ cls: 'bt-resize-indicator bt-resize-indicator-col' });
+		line.setCssProps({
+			'--ri-x':      `${colRightX(tbl, colIdx)}px`,
+			'--ri-top':    `${tblRect.top}px`,
+			'--ri-height': `${tblRect.height}px`,
+		});
+		return line;
+	};
+
+	handle.addEventListener('mouseenter', () => {
+		if (colLine || colDragging) return;
+		colLine = makeColLine(tbl.getBoundingClientRect());
+		colLine.setCssProps({ '--bt-ri-opacity': '0.4' });
+	});
+	handle.addEventListener('mouseleave', () => {
+		if (!colDragging) hideColLine();
+	});
+
+	handle.addEventListener('dblclick', (e: MouseEvent) => {
+		e.stopPropagation();
+		e.preventDefault();
+		hideColLine();
+		const fit = autoFitColWidth(tbl, colIdx, colMinWidth(col, getRegistry()));
+		void onStructuralOp({ type: 'set-col-width', colIdx, width: fit });
+	});
+
+	handle.addEventListener('pointerdown', (e: PointerEvent) => {
+		if (e.button !== 0) return;
+		e.stopPropagation();
+		e.preventDefault();
+		handle.setPointerCapture(e.pointerId);
+		colDragging = true;
+
+		const startX     = e.clientX;
+		const startW     = parseInt(thisCol.style.width) || (col.width ?? 120);
+		const startNextW = nextCol ? (parseInt(nextCol.style.width) || 120) : null;
+		const nextColIdx = nextCol ? parseInt(nextCol.dataset.col ?? '-1') : -1;
+		const MIN        = colMinWidth(col, getRegistry());
+		const tblRect    = tbl.getBoundingClientRect();
+
+		if (colLine) colLine.setCssProps({ '--bt-ri-opacity': '0.75' });
+		else { colLine = makeColLine(tblRect); colLine.setCssProps({ '--bt-ri-opacity': '0.75' }); }
+
+		const onMove = (ev: PointerEvent) => {
+			const delta = ev.clientX - startX;
+			const newW  = Math.max(MIN, startW + delta);
+			thisCol.style.setProperty('width', `${newW}px`);
+			if (nextCol && startNextW !== null) {
+				const nextMIN = nextColIdx >= 0
+					? colMinWidth(model.columns[nextColIdx] ?? { name: '' }, getRegistry())
+					: 40;
+				nextCol.style.setProperty('width', `${Math.max(nextMIN, startNextW - delta)}px`);
+			}
+			const sum = Array.from(tbl.querySelectorAll<HTMLElement>('col'))
+				.reduce((s, c) => s + (parseInt(c.style.width) || 0), 0);
+			tbl.style.setProperty('width', `${sum}px`);
+
+			if (colLine) colLine.setCssProps({ '--ri-x': `${colRightX(tbl, colIdx)}px` });
+			const r = tbl.getBoundingClientRect();
+			activeDocument.body.querySelector<HTMLElement>('.bt-edge-add-row.bt-strip-visible')
+				?.setCssProps({ '--strip-top': `${r.bottom + 2}px`, '--strip-left': `${r.left}px`, '--strip-width': `${r.width}px` });
+			activeDocument.body.querySelector<HTMLElement>('.bt-edge-add-col.bt-strip-visible')
+				?.setCssProps({ '--strip-top': `${r.top}px`, '--strip-left': `${r.right + 2}px`, '--strip-height': `${r.height}px` });
+			tbl.dispatchEvent(new CustomEvent('bt-layout-changed'));
+		};
+
+		const onUp = (ev: PointerEvent) => {
+			handle.removeEventListener('pointermove', onMove);
+			colDragging = false;
+			hideColLine();
+			const delta = ev.clientX - startX;
+			if (delta === 0) return;
+			void onStructuralOp({ type: 'set-col-width', colIdx, width: Math.max(MIN, startW + delta) });
+			if (nextCol && startNextW !== null && nextColIdx >= 0) {
+				const nextMIN = colMinWidth(model.columns[nextColIdx] ?? { name: '' }, getRegistry());
+				void onStructuralOp({ type: 'set-col-width', colIdx: nextColIdx, width: Math.max(nextMIN, startNextW - delta) });
+			}
+		};
+
+		handle.addEventListener('pointermove', onMove);
+		handle.addEventListener('pointerup', onUp, { once: true });
+	});
+}
+
 /** Auto-fit a row's height to its content by measuring cells without a forced height. */
 function autoFitRowHeight(tbl: HTMLElement, rowIdx: number, minH: number): number {
 	const cells = Array.from(tbl.querySelectorAll<HTMLElement>(`[data-row="${rowIdx}"]`));
@@ -1845,18 +1913,28 @@ function bindResizeHandle(
 	const hideRowLine = () => { rowLine?.remove(); rowLine = null; };
 	component.register(hideRowLine);
 
-	const makeRowLine = (targets: HTMLElement[], tblRect: DOMRect): HTMLElement => {
+	// Clicks on the seam must not bubble to the cell's click-to-edit handler
+	handle.addEventListener('click', e => e.stopPropagation());
+
+	// Cells that belong to exactly this one row (exclude rowspan cells whose height
+	// spans multiple rows — using them would measure/set the whole merge, making the
+	// indicator sit at the merge bottom and the drag magnitude mismatch the pointer).
+	const rowCells = (): HTMLElement[] => {
+		const all = Array.from(table.querySelectorAll<HTMLElement>(`[${dataAttr}]`));
+		const single = all.filter(c => (c as HTMLTableCellElement).rowSpan <= 1);
+		return single.length > 0 ? single : all;
+	};
+
+	const makeRowLine = (anchor: HTMLElement | undefined, tblRect: DOMRect): HTMLElement => {
 		const line = activeDocument.body.createDiv({ cls: 'bt-resize-indicator bt-resize-indicator-row' });
-		const firstCell = targets[0];
-		const borderY = firstCell ? firstCell.getBoundingClientRect().bottom : tblRect.bottom;
+		const borderY = anchor ? anchor.getBoundingClientRect().bottom : tblRect.bottom;
 		line.setCssProps({ '--ri-y': `${borderY}px`, '--ri-left': `${tblRect.left}px`, '--ri-width': `${tblRect.width}px` });
 		return line;
 	};
 
 	handle.addEventListener('mouseenter', () => {
 		if (rowLine || rowDragging) return;
-		const targets = Array.from(table.querySelectorAll<HTMLElement>(`[${dataAttr}]`));
-		rowLine = makeRowLine(targets, table.getBoundingClientRect());
+		rowLine = makeRowLine(rowCells()[0], table.getBoundingClientRect());
 		rowLine.setCssProps({ '--bt-ri-opacity': '0.4' });
 	});
 	handle.addEventListener('mouseleave', () => {
@@ -1871,27 +1949,27 @@ function bindResizeHandle(
 		rowDragging = true;
 
 		const startCoord = e.clientY;
-		// Collect cells at drag start (they're in the live DOM now)
-		const targets   = Array.from(table.querySelectorAll<HTMLElement>(`[${dataAttr}]`));
-		const firstCell = targets[0];
+		// Only cells that belong to this row alone — anchor + height targets
+		const targets   = rowCells();
+		const anchor    = targets[0];
 		const tblRect   = table.getBoundingClientRect();
 
 		// Read actual height at drag time — avoids the detached-div zero issue
-		const actualStart = (firstCell?.offsetHeight ?? 0) || minSize;
+		const actualStart = (anchor?.offsetHeight ?? 0) || minSize;
 		let lastSize = actualStart;
 		let hasMoved = false;
 
 		// Upgrade hover line or create fresh one
 		if (rowLine) rowLine.setCssProps({ '--bt-ri-opacity': '0.75' });
-		else { rowLine = makeRowLine(targets, tblRect); rowLine.setCssProps({ '--bt-ri-opacity': '0.75' }); }
+		else { rowLine = makeRowLine(anchor, tblRect); rowLine.setCssProps({ '--bt-ri-opacity': '0.75' }); }
 
 		const onMove = (ev: PointerEvent) => {
 			const delta = ev.clientY - startCoord;
 			lastSize = Math.max(minSize, Math.round(actualStart + delta));
 			for (const cell of targets) cell.style.setProperty(cssVar, `${lastSize}px`);
 			// Track actual cell bottom edge live — handles content min-height correctly
-			if (rowLine && firstCell) {
-				rowLine.setCssProps({ '--ri-y': `${firstCell.getBoundingClientRect().bottom}px` });
+			if (rowLine && anchor) {
+				rowLine.setCssProps({ '--ri-y': `${anchor.getBoundingClientRect().bottom}px` });
 			}
 			onDrag?.();
 			// Row height change shifts cell geometry → rebuild selector strips to follow
@@ -1905,8 +1983,7 @@ function bindResizeHandle(
 			hideRowLine();
 			if (!hasMoved) return;
 			onCommit(lastSize);
-			// Block the click event synthesized after pointerup from opening the cell editor
-			handle.addEventListener('click', ev => ev.stopPropagation(), { once: true });
+			// (click on the handle is already blocked by the permanent stopPropagation above)
 		};
 
 		handle.addEventListener('pointermove', onMove);
