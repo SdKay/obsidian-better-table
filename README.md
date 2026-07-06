@@ -128,35 +128,40 @@ The block starts with an optional YAML header (title, columns, merges, styles, f
 
 ---
 
-## Features
+## Features & Roadmap
 
-**Editing**
-- Single-click any cell to edit inline — supports plain text, `[[wikilinks]]`, bold, italic
-- `[[` inside a cell triggers Obsidian's native file & heading autocomplete
-- Double-click (or right-click a header) opens a panel to insert/delete/hide rows & columns, merge cells, set styles, or change the column type
-
-**Typed columns**
-Assign a type to a column; values render as colored pill badges. Single-click to pick from a dropdown — no typing needed.
-
-Built-in types: `task-status` · `priority` · `boolean` · `rating` · `effort` · `approval`
-
-Custom types can be defined in **Settings → Rich Table**.
-
-**Styles**
-Set background color, text color, and font size on any cell, row, column, or range — either via the double-click panel or directly in the YAML `styles` field.
-
-Hover over the table to reveal selector strips: a thin bar above the header (columns A B C…) and to the left (row numbers 1 2 3…). Click or drag to select entire rows or columns and open a style panel that writes directly to semantic targets (`1:1`, `B*`, `A:C`) — so the rule applies to any columns or rows added in the future.
-
-**Merges**
-Drag-select across cells and click **Merge** in the popup. Or declare merges in YAML (e.g. `A2:B3`).
-
-**Reorder & resize**
-- Drag the ⠿ handle on any header cell to reorder columns; drag the ⠿ handle on any data row to reorder rows.
-- Drag a column header's right edge to resize its width; drag a row's bottom edge to resize its height.
-- Hover near the table's bottom or right edge to reveal **+** strips for appending rows/columns.
-
-**Title & footer**
-Add a centered title above the table and notes below. Click either to edit inline. Multi-line footers supported.
+| Feature | |
+|---------|:-:|
+| **Editing** | |
+| Single-click any cell to edit — text, `[[wikilinks]]`, bold, italic | ✅ |
+| `[[` triggers Obsidian's native file & heading autocomplete | ✅ |
+| Double-click / right-click menu — insert, delete, hide rows & columns; merge cells; set style; change column type | ✅ |
+| Keyboard navigation — arrow keys between cells, Tab to advance | 🔜 |
+| Paste table from Excel / CSV | 🔜 |
+| **Typed columns** | |
+| Colored pill badges; single-click to pick value from dropdown | ✅ |
+| Built-in types: `task-status` · `priority` · `boolean` · `rating` · `effort` · `approval` | ✅ |
+| Custom types defined in **Settings → Rich Table** | ✅ |
+| Row filtering — show only rows matching a condition | 🔜 |
+| Row sorting — click a column header to sort | 🔜 |
+| **Styles** | |
+| Per-cell bg color, text color, and font size — via panel or YAML | ✅ |
+| Row / column selector strips — hover to reveal, click or drag to style entire rows/columns with semantic targets (`1:1`, `B*`, `A:C`) | ✅ |
+| Conditional formatting — auto-apply styles based on cell value rules | 🔜 |
+| Progress bar column type · aggregate row (SUM / COUNT) | 🔜 |
+| **Merges & copy-paste** | |
+| Cell merging — drag-select → Merge in popup, or declare in YAML | ✅ |
+| Copy / paste between rich-table blocks or to / from Excel (merge state preserved) | 🔜 |
+| **Table structure** | |
+| Drag ⠿ handle to reorder rows / columns | ✅ |
+| Drag column right edge or row bottom edge to resize | ✅ |
+| Hover bottom / right edge → **+** strips to append rows / columns | ✅ |
+| Hide and show rows / columns | ✅ |
+| Freeze header row / first N columns | 🔜 |
+| Row grouping — collapsible groups | 🔜 |
+| **Title & annotations** | |
+| Table title above, footer notes below — click to edit inline | ✅ |
+| Cell comments — floating notes shown on hover | 🔜 |
 
 ---
 
@@ -173,28 +178,6 @@ Or: [Open in Obsidian](https://obsidian.md/plugins?id=rich-table)
 **Manual:** copy `main.js`, `manifest.json`, `styles.css` to `<vault>/.obsidian/plugins/rich-table/`
 
 Minimum Obsidian version: **1.8.7**
-
----
-
-## Planned
-
-**Editing**
-- Keyboard navigation — arrow keys to move between cells, Tab to advance
-- Paste from clipboard — paste a copied Excel / CSV table directly into the grid
-
-**Data & display**
-- Row sorting — click a column header to sort
-- Row filtering — show only rows matching a condition (e.g. `status = done`)
-- Conditional formatting — auto-apply background color based on cell value rules
-- Progress bar column type — visualize a 0–100 numeric value as a filled bar
-- Aggregate row — automatic SUM / COUNT for numeric and choice columns
-
-**Annotations**
-- Cell comments — attach a floating note to any cell; shown on hover
-
-**Structure**
-- Row grouping — collapsible groups of rows
-- Custom type editor — visual UI to add/edit choice types (replacing the JSON textarea)
 
 ---
 
