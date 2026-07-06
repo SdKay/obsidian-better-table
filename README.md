@@ -142,7 +142,8 @@ The block starts with an optional YAML header (title, columns, merges, styles, f
 | Colored pill badges; single-click to pick value from dropdown | ✅ |
 | Built-in types: `task-status` · `priority` · `boolean` · `rating` · `effort` · `approval` | ✅ |
 | Custom types defined in **Settings → Rich Table** | ✅ |
-| Row filtering — show only rows matching a condition | 🔜 |
+| Row filtering — show only rows matching a condition | ✅ |
+| Filter status bar — "Showing X of Y · Clear" unified with sort / aggregate info | 🔜 |
 | Row sorting — click a column header to sort | 🔜 |
 | **Styles** | |
 | Per-cell bg color, text color, and font size — via panel or YAML | ✅ |

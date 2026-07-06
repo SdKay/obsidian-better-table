@@ -363,18 +363,6 @@
 	font-size: var(--font-ui-medium);
 }
 
-/* Off-screen table used to measure intrinsic content size for auto-fit */
-.bt-measure-table {
-	position: absolute;
-	visibility: hidden;
-	left: -9999px;
-	top: 0;
-	table-layout: auto;
-	width: auto;
-}
-.bt-measure-cell {
-	white-space: nowrap;
-}
 
 /* Use .bt-table prefix to outweigh Obsidian theme selectors */
 .bt-table .bt-th,
@@ -562,6 +550,89 @@
 .bt-add-row:hover {
 	color: var(--text-normal);
 	background: var(--background-modifier-hover);
+}
+
+/* ── Filter button in column header ──────────────────────────────────────── */
+.bt-table .bt-th .bt-filter-btn {
+	position: absolute;
+	bottom: 3px;
+	right: 3px;
+	width: 16px;
+	height: 16px;
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	opacity: 0;
+	cursor: pointer;
+	border-radius: var(--radius-s);
+	color: var(--text-muted);
+	transition: opacity 80ms;
+}
+.bt-table .bt-th .bt-filter-btn svg { width: 11px; height: 11px; }
+.bt-table .bt-th:hover .bt-filter-btn { opacity: 1; }
+.bt-table .bt-th .bt-filter-btn.bt-filter-active {
+	opacity: 1;
+	color: white;
+	mix-blend-mode: difference;
+}
+
+/* ── Filter status bar ────────────────────────────────────────────────────── */
+.bt-filter-bar {
+	display: inline-flex;
+	align-items: center;
+	gap: 6px;
+	margin-top: 3px;
+	font-size: var(--font-ui-smaller);
+	color: var(--text-faint);
+}
+.bt-filter-bar-clear {
+	padding: 0 6px;
+	border: none;
+	background: transparent;
+	color: var(--interactive-accent);
+	font-size: var(--font-ui-smaller);
+	cursor: pointer;
+	opacity: 0.7;
+}
+.bt-filter-bar-clear:hover { opacity: 1; }
+
+/* ── Filter panel (column value checkboxes) ──────────────────────────────── */
+.bt-filter-panel {
+	position: fixed;
+	top:  var(--fp-top,  0px);
+	left: var(--fp-left, 0px);
+	z-index: var(--layer-popover);
+	width: 220px;
+	max-height: 320px;
+	display: flex;
+	flex-direction: column;
+	background: var(--background-primary);
+	border: 1px solid var(--background-modifier-border);
+	border-radius: var(--radius-m);
+	box-shadow: var(--shadow-m);
+	overflow: hidden;
+}
+.bt-fp-list {
+	overflow-y: auto;
+	flex: 1;
+}
+.bt-fp-row {
+	display: flex;
+	align-items: center;
+	gap: 8px;
+	padding: 5px 12px;
+	font-size: var(--font-ui-small);
+	color: var(--text-normal);
+	cursor: pointer;
+}
+.bt-fp-row:hover { background: var(--background-modifier-hover); }
+.bt-fp-all-row   { font-weight: var(--font-semibold); }
+.bt-fp-divider   { height: 1px; background: var(--background-modifier-border); }
+.bt-fp-footer {
+	display: flex;
+	align-items: center;
+	justify-content: space-between;
+	padding: 6px 12px;
 }
 
 /* Wikilink suggest popup — position:fixed so it escapes the table's overflow */

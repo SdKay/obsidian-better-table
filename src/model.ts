@@ -45,6 +45,8 @@ export interface TableModel {
 	hiddenRows?: number[]; // 0-indexed model row indices (0 = header, never hidden)
 	rowHeights?: number[]; // per-row min-height in px, 0-indexed (0 = header)
 	footer?: string | string[];
+	/** Active column filters: key = column letter (e.g. "B"), value = values to SHOW */
+	filter?: Record<string, string[]>;
 }
 
 export interface ChoiceOption {

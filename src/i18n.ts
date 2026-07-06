@@ -45,6 +45,12 @@ const EN = {
 
 	// Row/col actions menu
 	rowAndColActions: 'Row and column actions',
+
+	// Row filtering
+	filterColumn:   'Filter column',
+	filterSelectAll: 'Select all',
+	filterClear:    'Clear filter',
+	filterActive:   'filter active',
 } as const;
 
 const ZH: { [K in keyof typeof EN]: string } = {
@@ -80,6 +86,11 @@ const ZH: { [K in keyof typeof EN]: string } = {
 	changeValue: '切换值',
 
 	rowAndColActions: '行列操作',
+
+	filterColumn:    '筛选列',
+	filterSelectAll: '全选',
+	filterClear:     '清除筛选',
+	filterActive:    '筛选中',
 };
 
 export function t(key: keyof typeof EN): string {
@@ -137,4 +148,10 @@ export function styleEntireColsLabel(c1: number, c2: number, letter: (i: number)
 export function typeLabel(currentType?: string): string {
 	if (!currentType) return t('setType');
 	return isZh() ? `类型：${currentType}` : `Type: ${currentType}`;
+}
+
+export function filterStatusLabel(shown: number, total: number): string {
+	return isZh()
+		? `已筛选：显示 ${shown} / ${total} 行`
+		: `Filtered: showing ${shown} of ${total} rows`;
 }

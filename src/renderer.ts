@@ -385,10 +385,14 @@ export async function renderTable(
 			}
 			continue;
 		}
+		if (isRowFiltered(r, model)) { r++; continue; }
 		const tr = tbody.createEl('tr');
 		await renderRow(tr, r, model, occupied, registry, getRegistry, app, sourcePath, component, false, onCellChange, onColTypeChange, onStructuralOp);
 		r++;
 	}
+
+	// TODO: filter status bar ("Showing X of Y rows · Clear filter") — deferred until
+	// a unified table status bar is designed that can also host sort/aggregate info.
 
 	// Footer
 	if (model.footer) {
@@ -1011,6 +1015,22 @@ function renderHeaderCell(
 		if (el.hasClass('bt-editing')) return;
 		openPanel(evt);
 	});
+
+	// Filter button — bottom-right corner of the header cell
+	if (onStructuralOp) {
+		const colLetter = colIndexToLetter(colIdx);
+		const activeValues = model.filter?.[colLetter];
+		const filterBtn = el.createDiv({
+			cls: 'bt-filter-btn' + (activeValues ? ' bt-filter-active' : ''),
+			attr: { 'aria-label': t('filterColumn'), 'data-tooltip-position': 'top' },
+		});
+		setIcon(filterBtn, 'filter');
+		filterBtn.addEventListener('click', (e: MouseEvent) => {
+			e.stopPropagation();
+			e.preventDefault();
+			openFilterPanel(el, colIdx, colLetter, model, getRegistry(), onStructuralOp);
+		});
+	}
 	// Column resize is handled by the selector-strip handles (works with merges too)
 }
 
@@ -1330,6 +1350,123 @@ function dataCellOps(
 
 // Module-level reference so any new openCellPanel call can close the previous one first.
 let closeActivePanel: (() => void) | null = null;
+
+/** Filter dropdown panel for a column. */
+function openFilterPanel(
+	anchor: HTMLElement,
+	colIdx: number,
+	colLetter: string,
+	model: TableModel,
+	registry: ChoiceRegistry,
+	onStructuralOp: StructuralOpHandler,
+): void {
+	closeActivePanel?.();
+
+	const col = model.columns[colIdx];
+	if (!col) return;
+
+	// Collect candidate values: typed columns use defined options; others use unique data values
+	const defined: { value: string; label: string }[] = [];
+	if (col.type && !SPECIAL_TYPES.has(col.type)) {
+		const ct = registry.get(col.type);
+		if (ct) {
+			for (const opt of ct.options) defined.push({ value: opt.value, label: opt.label ?? opt.value });
+		}
+	}
+	if (defined.length === 0) {
+		// Text column — gather unique non-empty values from data rows
+		const seen = new Set<string>();
+		for (let ri = 1; ri < model.rows.length; ri++) {
+			const v = model.rows[ri]?.[colIdx]?.trim() ?? '';
+			if (v && !seen.has(v)) { seen.add(v); defined.push({ value: v, label: v }); }
+		}
+		defined.sort((a, b) => a.label.localeCompare(b.label));
+	}
+
+	const current = new Set(model.filter?.[colLetter] ?? []);
+	const noFilter = current.size === 0;
+
+	// Position panel
+	const ar = anchor.getBoundingClientRect();
+	const PW = 220;
+	let top  = ar.bottom + 4;
+	let left = ar.left;
+	if (top  + 320 > activeWindow.innerHeight) top  = Math.max(8, ar.top - 320);
+	if (left + PW  > activeWindow.innerWidth)  left = Math.max(8, ar.right - PW);
+
+	const panel = activeDocument.body.createDiv({ cls: 'bt-filter-panel' });
+	panel.setCssProps({ '--fp-top': `${top}px`, '--fp-left': `${left}px` });
+
+	// Select all checkbox
+	const allRow  = panel.createDiv({ cls: 'bt-fp-row bt-fp-all-row' });
+	const allChk  = allRow.createEl('input', { attr: { type: 'checkbox' } });
+	allChk.checked = noFilter;
+	allRow.createSpan({ text: t('filterSelectAll') });
+
+	panel.createDiv({ cls: 'bt-fp-divider' });
+
+	// Value checkboxes
+	const checkboxes: { chk: HTMLInputElement; value: string }[] = [];
+	const listEl = panel.createDiv({ cls: 'bt-fp-list' });
+	for (const { value, label } of defined) {
+		const row = listEl.createDiv({ cls: 'bt-fp-row' });
+		const chk = row.createEl('input', { attr: { type: 'checkbox' } });
+		chk.checked = noFilter || current.has(value);
+		row.createSpan({ text: label });
+		checkboxes.push({ chk, value });
+		chk.addEventListener('change', () => {
+			const anyUnchecked = checkboxes.some(c => !c.chk.checked);
+			allChk.checked = !anyUnchecked;
+			allChk.indeterminate = anyUnchecked && checkboxes.some(c => c.chk.checked);
+		});
+	}
+
+	allChk.addEventListener('change', () => {
+		for (const { chk } of checkboxes) chk.checked = allChk.checked;
+	});
+	if (!noFilter) {
+		const anyUnchecked = checkboxes.some(c => !c.chk.checked);
+		allChk.indeterminate = anyUnchecked && checkboxes.some(c => c.chk.checked);
+	}
+
+	// Footer buttons
+	panel.createDiv({ cls: 'bt-fp-divider' });
+	const foot     = panel.createDiv({ cls: 'bt-fp-footer' });
+	const clearBtn = foot.createEl('button', { cls: 'bt-sp-clear-btn', text: t('filterClear') });
+	const applyBtn = foot.createEl('button', { cls: 'bt-sp-apply',     text: t('apply') });
+
+	let committed = false;
+	const close = () => {
+		if (!committed) committed = true;
+		panel.remove();
+		if (closeActivePanel === doClose) closeActivePanel = null;
+	};
+	const doClose = close;
+	closeActivePanel = doClose;
+
+	clearBtn.addEventListener('click', () => {
+		committed = true;
+		void onStructuralOp({ type: 'set-filter', colLetter, values: null });
+		close();
+	});
+	applyBtn.addEventListener('click', () => {
+		committed = true;
+		const selected = checkboxes.filter(c => c.chk.checked).map(c => c.value);
+		const allSelected = selected.length === checkboxes.length;
+		void onStructuralOp({ type: 'set-filter', colLetter, values: allSelected ? null : selected });
+		close();
+	});
+	panel.addEventListener('keydown', (e: KeyboardEvent) => {
+		if (e.key === 'Escape') { e.stopPropagation(); close(); }
+		if (e.key === 'Enter')  { e.preventDefault(); applyBtn.click(); }
+	});
+	window.setTimeout(() => {
+		const outside = (e: MouseEvent) => {
+			if (!panel.contains(e.target as Node)) { close(); activeDocument.removeEventListener('mousedown', outside); }
+		};
+		activeDocument.addEventListener('mousedown', outside);
+	}, 0);
+}
 
 /** Unified panel shown on double-click for all cell types (header / data / selection). */
 function openCellPanel(config: CellPanelConfig): HTMLElement {
@@ -1730,6 +1867,18 @@ function enterEditMode(
 	}
 }
 
+/** Returns true when rowIdx (0-indexed data row ≥ 1) should be hidden by active filters. */
+function isRowFiltered(rowIdx: number, model: TableModel): boolean {
+	if (!model.filter || rowIdx === 0) return false;
+	for (const [colLetter, values] of Object.entries(model.filter)) {
+		if (!values || values.length === 0) continue;
+		const ci = colLetterToIndex(colLetter);
+		const cellValue = model.rows[rowIdx]?.[ci]?.trim() ?? '';
+		if (!values.includes(cellValue)) return true;
+	}
+	return false;
+}
+
 function applyColStyle(el: HTMLElement, col: ColumnDef): void {
 	// Width is now controlled solely by <colgroup>/<col> — no CSS variable needed
 	if (col.align) el.addClass(`bt-align-${col.align}`);
@@ -1758,24 +1907,26 @@ function autoFitColWidth(tbl: HTMLElement, colIdx: number, minW: number): number
 	const cells = Array.from(tbl.querySelectorAll<HTMLElement>(`[data-col="${colIdx}"]`));
 	if (cells.length === 0) return minW;
 
-	const measTable = activeDocument.body.createEl('table', { cls: 'bt-table bt-measure-table' });
-	const measRow = measTable.createEl('tbody').createEl('tr');
-
-	for (const cell of cells) {
-		const clone = cell.cloneNode(true) as HTMLElement;
-		// Drop interactive chrome that isn't part of the content width
-		clone.querySelectorAll('.bt-col-resize-handle, .bt-row-resize-handle, .bt-col-drag-handle, .bt-row-drag-handle')
-			.forEach(h => h.remove());
-		clone.addClass('bt-measure-cell');
-		clone.style.removeProperty('width');
-		measRow.appendChild(clone);
-	}
-
 	let max = minW;
-	for (const c of Array.from(measRow.children)) {
-		max = Math.max(max, (c as HTMLElement).offsetWidth + 2); // +2 buffer for borders
+	for (const cell of cells) {
+		const view = activeDocument.defaultView;
+		const padH = view
+			? parseFloat(view.getComputedStyle(cell).paddingLeft) +
+			  parseFloat(view.getComputedStyle(cell).paddingRight)
+			: 24;
+
+		const pill = cell.querySelector<HTMLElement>('.bt-choice');
+		if (pill) {
+			// inline-flex + white-space:nowrap → offsetWidth is the natural pill width
+			// even when the parent cell clips it with overflow:hidden.
+			// Reading from the live DOM means all CSS variables are fully resolved.
+			max = Math.max(max, pill.offsetWidth + padH + 4);
+		} else {
+			// Plain text cell: scrollWidth on the live cell gives content+padding
+			// (overflow:hidden clips the display but not the scroll dimension).
+			max = Math.max(max, cell.scrollWidth + 4);
+		}
 	}
-	measTable.remove();
 	return Math.ceil(max);
 }
 

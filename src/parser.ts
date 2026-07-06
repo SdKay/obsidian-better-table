@@ -21,8 +21,9 @@ export function parseTable(source: string): TableModel {
 	const rowHeights = extractRowHeights(yaml?.rowHeights);
 	const title      = typeof yaml?.title  === 'string' ? yaml.title  : undefined;
 	const footer     = extractFooter(yaml?.footer);
+	const filter     = extractFilter(yaml?.filter);
 
-	return { title, columns, rows, merges, styles, hiddenRows, rowHeights, footer };
+	return { title, columns, rows, merges, styles, hiddenRows, rowHeights, footer, filter };
 }
 
 function splitFrontmatter(lines: string[]): [string | null, string[]] {
@@ -142,6 +143,18 @@ function extractFooter(raw: unknown): string | string[] | undefined {
 	if (typeof raw === 'string') return raw;
 	if (Array.isArray(raw) && raw.every(x => typeof x === 'string')) return raw;
 	return undefined;
+}
+
+function extractFilter(raw: unknown): Record<string, string[]> | undefined {
+	if (typeof raw !== 'object' || raw === null || Array.isArray(raw)) return undefined;
+	const result: Record<string, string[]> = {};
+	for (const [k, v] of Object.entries(raw as Record<string, unknown>)) {
+		if (typeof k === 'string' && /^[A-Z]+$/.test(k) && Array.isArray(v)) {
+			const vals = (v as unknown[]).filter((x): x is string => typeof x === 'string');
+			if (vals.length > 0) result[k] = vals;
+		}
+	}
+	return Object.keys(result).length > 0 ? result : undefined;
 }
 
 function extractStyles(raw: unknown): StyleRule[] {

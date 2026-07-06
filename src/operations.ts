@@ -19,7 +19,8 @@ export type StructuralOp =
 	| { type: 'set-title';       title:  string | undefined }
 	| { type: 'set-footer';      footer: string | string[] | undefined }
 	| { type: 'set-col-width';   colIdx: number; width: number }
-	| { type: 'set-row-height';  rowIdx: number; height: number };
+	| { type: 'set-row-height';  rowIdx: number; height: number }
+	| { type: 'set-filter';      colLetter: string; values: string[] | null };
 
 export function applyStructuralOp(model: TableModel, op: StructuralOp): void {
 	switch (op.type) {
@@ -170,6 +171,18 @@ export function applyStructuralOp(model: TableModel, op: StructuralOp): void {
 			if (size !== null) rule.size = size; else delete rule.size;
 			if (!rule.bg && !rule.color && !rule.bold && !rule.italic && !rule.size) {
 				model.styles = model.styles.filter(s => s.target !== target);
+			}
+			break;
+		}
+		case 'set-filter': {
+			const { colLetter, values } = op;
+			if (!values || values.length === 0) {
+				if (model.filter) {
+					delete model.filter[colLetter];
+					if (Object.keys(model.filter).length === 0) delete model.filter;
+				}
+			} else {
+				(model.filter ??= {})[colLetter] = values;
 			}
 			break;
 		}
