@@ -142,7 +142,7 @@ The block starts with an optional YAML header (title, columns, merges, styles, f
 | Colored pill badges; single-click to pick value from dropdown | ✅ |
 | Built-in types: `task-status` · `priority` · `boolean` · `rating` · `effort` · `approval` | ✅ |
 | Custom types defined in **Settings → Rich Table** | ✅ |
-| Row filtering — show only rows matching a condition | ✅ |
+| Row filtering — funnel icon on each column header; click to open a checkbox panel and filter by value | ✅ |
 | Filter status bar — "Showing X of Y · Clear" unified with sort / aggregate info | 🔜 |
 | Row sorting — click a column header to sort | 🔜 |
 | **Styles** | |
@@ -155,7 +155,7 @@ The block starts with an optional YAML header (title, columns, merges, styles, f
 | Copy / paste between rich-table blocks or to / from Excel (merge state preserved) | 🔜 |
 | **Table structure** | |
 | Drag ⠿ handle to reorder rows / columns | ✅ |
-| Drag column right edge or row bottom edge to resize | ✅ |
+| Hover the column / row selector strips to reveal resize seams; drag to resize, double-click to auto-fit | ✅ |
 | Hover bottom / right edge → **+** strips to append rows / columns | ✅ |
 | Hide and show rows / columns | ✅ |
 | Freeze header row / first N columns | 🔜 |

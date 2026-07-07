@@ -41,8 +41,9 @@ footer: "单击编辑 · 双击弹出操作菜单 · 拖拽 ⠿ 排序"
 | 类型列     | 单击有类型的单元格选择值                         | pending |                   |
 | 合并单元格 | 拖拽选中多个格 → 双击弹窗点 Merge                | todo    |                   |
 | 样式设置   | 双击单格设置样式 · 悬停左/上条带选整行/列        | todo    |                   |
+| 行筛选     | 列标题漏斗图标 → 勾选要显示的值                  | todo    |                   |
 | 拖拽排序   | 拖拽行左侧或列顶部的 ⠿ 手柄                     | todo    |                   |
-| 调整宽高   | 拖拽列标题右边缘调列宽 · 拖拽行底边缘调行高      | todo    |                   |
+| 调整宽高   | 悬停选择条拖拽调整 · 双击自动适配内容            | todo    |                   |
 `;
 	}
 	return `\
@@ -69,8 +70,9 @@ footer: "Single-click to edit · double-click for cell menu · drag ⠿ to reord
 | Choice column | Single-click typed cell to pick from dropdown    | pending |                   |
 | Merge cells   | Drag-select → Merge in the double-click popup    | todo    |                   |
 | Cell style    | Double-click cell · hover left/top strip for row/col style | todo    |                   |
+| Filter        | Funnel icon on column header → check values to show       | todo    |                   |
 | Reorder       | Drag ⠿ handle on row left side or column top    | todo    |                   |
-| Resize        | Drag column header right edge · row bottom edge  | todo    |                   |
+| Resize        | Hover selector strip · drag seam · double-click to auto-fit | todo    |                   |
 `;
 }
 
