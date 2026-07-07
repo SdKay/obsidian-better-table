@@ -148,6 +148,7 @@ The block starts with an optional YAML header (title, columns, merges, styles, f
 | **Styles** | |
 | Per-cell bg color, text color, and font size — via panel or YAML | ✅ |
 | Row / column selector strips — hover to reveal, click or drag to style entire rows/columns with semantic targets (`1:1`, `B*`, `A:C`) | ✅ |
+| Per-table lock — click the 🔒 icon at the top-right corner to disable / re-enable all graphical editing for one specific table | ✅ |
 | Conditional formatting — auto-apply styles based on cell value rules | 🔜 |
 | Progress bar column type · aggregate row (SUM / COUNT) | 🔜 |
 | **Merges & copy-paste** | |

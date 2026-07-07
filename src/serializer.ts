@@ -11,7 +11,8 @@ export function serializeTable(model: TableModel): string {
 		(model.rowHeights?.length ?? 0) > 0 ||
 		model.merges.length > 0 ||
 		model.styles.length > 0 ||
-		(model.filter && Object.keys(model.filter).length > 0);
+		(model.filter && Object.keys(model.filter).length > 0) ||
+		!!model.locked;
 
 	const parts: string[] = [];
 
@@ -66,6 +67,8 @@ function buildYamlBlock(model: TableModel): string {
 	if (model.filter && Object.keys(model.filter).length > 0) {
 		obj.filter = model.filter;
 	}
+
+	if (model.locked) obj.locked = true;
 
 	if (model.footer) obj.footer = model.footer;
 

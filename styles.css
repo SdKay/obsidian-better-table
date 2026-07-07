@@ -135,6 +135,43 @@
 	background: var(--interactive-accent-hover);
 }
 
+/* ── Lock button ─────────────────────────────────────────────────────────── */
+/* Sits at the corner between the col selector and the add-col button.
+ * Unlocked: faint, reveals on root hover. Locked: always visible with accent colour. */
+.bt-lock-btn {
+	position: absolute;
+	top:  var(--lk-top,  -22px);
+	/* fallback uses --bt-lock-table-w (set from totalWidth) so the button is
+	 * roughly correct before the first getBoundingClientRect call fires.
+	 * Offset matches the center-alignment formula: lock.left = tl + tw */
+	left: var(--lk-left, var(--bt-lock-table-w, 100%));
+	width: 22px;
+	/* Match col-selector label cell height (18px) so the button sits flush
+	 * within the label zone from root y=(tt-22) to y=(tt-4). */
+	height: 18px;
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	cursor: pointer;
+	border-radius: var(--radius-s);
+	opacity: 0;
+	transition: opacity 0.08s, background 0.08s;
+	color: var(--text-faint);
+	z-index: 11;
+}
+.bt-lock-btn svg { width: 13px; height: 13px; }
+.bt-render-root:hover .bt-lock-btn,
+.bt-lock-btn.is-locked {
+	opacity: 1;
+}
+.bt-lock-btn.is-locked {
+	color: var(--text-warning, var(--color-orange));
+}
+.bt-lock-btn:hover {
+	background: var(--background-modifier-hover);
+	color: var(--text-normal);
+}
+
 /* ── Row / column selector strips (Excel-style whole-row/col selection) ─── */
 .bt-col-selector,
 .bt-row-selector {

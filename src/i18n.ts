@@ -51,6 +51,10 @@ const EN = {
 	filterSelectAll: 'Select all',
 	filterClear:    'Clear filter',
 	filterActive:   'filter active',
+
+	// Table lock
+	lockTable:   'Lock table (disable graphical editing)',
+	unlockTable: 'Unlock table (enable graphical editing)',
 } as const;
 
 const ZH: { [K in keyof typeof EN]: string } = {
@@ -91,6 +95,9 @@ const ZH: { [K in keyof typeof EN]: string } = {
 	filterSelectAll: '全选',
 	filterClear:     '清除筛选',
 	filterActive:    '筛选中',
+
+	lockTable:   '锁定表格（禁用图形化编辑）',
+	unlockTable: '解锁表格（启用图形化编辑）',
 };
 
 export function t(key: keyof typeof EN): string {

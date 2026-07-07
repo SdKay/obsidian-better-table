@@ -47,6 +47,9 @@ export interface TableModel {
 	footer?: string | string[];
 	/** Active column filters: key = column letter (e.g. "B"), value = values to SHOW */
 	filter?: Record<string, string[]>;
+	/** When true, all graphical editing is disabled in edit/live-preview mode.
+	 *  The lock button at the top-right corner toggles this field. */
+	locked?: boolean;
 }
 
 export interface ChoiceOption {

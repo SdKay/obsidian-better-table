@@ -120,11 +120,17 @@ export class TableBlock extends MarkdownRenderChild {
 		// containerEl.closest() works reliably here because the block is already attached
 		// to the DOM before render() is called (via the cache-inject path in onload).
 		const isReadingView = !!(this.containerEl.closest('.markdown-reading-view'));
-		const editAllowed = !isReadingView || this.plugin.settings.allowReadingViewEdit;
+		// editAllowed: full interactive callbacks — disabled in reading view (unless setting)
+		//              AND disabled when the table is explicitly locked.
+		const editAllowed = (!isReadingView || this.plugin.settings.allowReadingViewEdit);
+		// lockAvailable: the lock toggle button is shown only in edit/live-preview mode.
+		//                It is NOT shown in reading view (lock state is already irrelevant there).
+		const lockAvailable = !isReadingView && !isEmpty;
 
 		try {
 			const source = isEmpty ? getEmptyTemplate() : this.source;
 			this.model = parseTable(source);
+			const locked = this.model.locked ?? false;
 			await renderTable(
 				this.model,
 				() => this.plugin.choiceRegistry,
@@ -132,9 +138,10 @@ export class TableBlock extends MarkdownRenderChild {
 				this.plugin.app,
 				this.sourcePath,
 				this,
-				(isEmpty || !editAllowed) ? undefined : (row, col, value) => this.handleCellChange(row, col, value),
-				(isEmpty || !editAllowed) ? undefined : (colIdx, newType) => this.handleColTypeChange(colIdx, newType),
-				(isEmpty || !editAllowed) ? undefined : (op) => this.handleStructuralOp(op),
+				(isEmpty || !editAllowed || locked) ? undefined : (row, col, value) => this.handleCellChange(row, col, value),
+				(isEmpty || !editAllowed || locked) ? undefined : (colIdx, newType) => this.handleColTypeChange(colIdx, newType),
+				(isEmpty || !editAllowed || locked) ? undefined : (op) => this.handleStructuralOp(op),
+				lockAvailable ? () => this.handleStructuralOp({ type: 'toggle-lock' }) : undefined,
 			);
 			if (isEmpty) {
 				const banner = createDiv({ cls: 'bt-template-banner' });

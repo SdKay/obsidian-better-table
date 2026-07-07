@@ -12,6 +12,7 @@ import { colLetterToIndex, colIndexToLetter, parseCellCoord } from './utils';
 type CellChangeHandler    = (row: number, col: number, value: string) => Promise<void>;
 type ColTypeChangeHandler = (colIdx: number, newType: string | undefined) => Promise<void>;
 type StructuralOpHandler  = (op: StructuralOp) => Promise<void>;
+type ToggleLockHandler    = () => Promise<void>;
 
 /** Special column types handled with dedicated editors (not choice dropdowns). */
 const SPECIAL_TYPES = new Set(['date']);
@@ -26,6 +27,7 @@ export async function renderTable(
 	onCellChange?: CellChangeHandler,
 	onColTypeChange?: ColTypeChangeHandler,
 	onStructuralOp?: StructuralOpHandler,
+	onToggleLock?: ToggleLockHandler,
 ): Promise<void> {
 	if (model.columns.length === 0) return;
 
@@ -87,6 +89,8 @@ export async function renderTable(
 	// theme `table { width: 100% }` rule). Without this, table-layout:fixed
 	// distributes leftover width across all columns — bloating hidden-col cells.
 	table.style.setProperty('width', `${totalWidth}px`);
+	// CSS fallback for lock button left position (used before first getBoundingClientRect call)
+	if (onToggleLock) root.setCssProps({ '--bt-lock-table-w': `${totalWidth}px` });
 
 	// ── Drag-to-select for cell merging ──────────────────────────────────────
 	// sel tracks the current drag selection; hasMoved prevents click handlers
@@ -435,12 +439,13 @@ export async function renderTable(
 	// show/hide call so that ALL position calculations see the same, correct layout.
 	// This prevents cascading errors when padding-top changes on root (which shifts
 	// the table and would invalidate any positions computed before the change).
-	let showEdgeStrips  = () => { /* assigned in edge block */ };
-	let hideEdgeStrips  = () => { /* assigned in edge block */ };
-	let showSelectors   = () => { /* assigned in selector block */ };
-	let hideSelectors   = () => { /* assigned in selector block */ };
-	let prepareLayout   = () => { /* assigned in selector block */ };
-	let restoreLayout   = () => { /* assigned in selector block */ };
+	let showEdgeStrips    = () => { /* assigned in edge block */ };
+	let hideEdgeStrips    = () => { /* assigned in edge block */ };
+	let showSelectors     = () => { /* assigned in selector block */ };
+	let hideSelectors     = () => { /* assigned in selector block */ };
+	let prepareLayout     = () => { /* assigned in selector block */ };
+	let restoreLayout     = () => { /* assigned in selector block */ };
+	let repositionLockBtn = () => { /* assigned in lock-button block */ };
 
 	// ── Edge-hover add strips (CSS Grid cells inside bt-render-root) ──
 	if (onStructuralOp) {
@@ -505,6 +510,42 @@ export async function renderTable(
 		table.addEventListener('bt-layout-changed', () => {
 			if (addRowBtn.hasClass('bt-strip-visible')) positionEdgeStrips();
 		});
+	}
+
+	// ── Lock button ───────────────────────────────────────────────────────────
+	// Sits at the corner between the col selector strip and the add-col button.
+	// Visible on root hover when unlocked; always visible when locked so the user
+	// can unlock. Only rendered in edit/live-preview mode (onToggleLock provided).
+	if (onToggleLock) {
+		const lockBtn = root.createDiv({
+			cls: 'bt-lock-btn' + (model.locked ? ' is-locked' : ''),
+			attr: {
+				'aria-label':          model.locked ? t('unlockTable') : t('lockTable'),
+				'data-tooltip-position': 'top',
+			},
+		});
+		setIcon(lockBtn, model.locked ? 'lock' : 'lock-open');
+
+		const positionLockBtn = () => {
+			const tr = table.getBoundingClientRect();
+			const rr = root.getBoundingClientRect();
+			// Guard: skip if table is still in a detached DOM (dimensions all zero)
+			if (tr.width === 0) return;
+			// Center lock btn on the add-col strip's center:
+			//   add-col left = tl + tw + 2, width = 18 → center = tl + tw + 11
+			//   lock width = 22 → left = center - 11 = tl + tw
+			lockBtn.setCssProps({
+				'--lk-top':  `${tr.top - rr.top - 22}px`,
+				'--lk-left': `${tr.left - rr.left + tr.width}px`,
+			});
+		};
+		// Defer initial positioning to after the DOM is attached (getBoundingClientRect
+		// returns zeros while root is still inside the detached tmp container).
+		window.requestAnimationFrame(positionLockBtn);
+		repositionLockBtn = positionLockBtn;
+
+		lockBtn.addEventListener('click', () => void onToggleLock());
+		table.addEventListener('bt-layout-changed', positionLockBtn);
 	}
 
 	// ── Row / column selector strips (Excel-style whole-row/column selection) ──
@@ -760,6 +801,7 @@ export async function renderTable(
 		restoreLayout = () => {
 			root.setCssProps({ '--bt-sel-pad': '0px' });
 			titleEl?.setCssProps({ '--bt-title-mb-adj': '0px' });
+			repositionLockBtn(); // lock btn position depends on tt which changes with padding
 		};
 
 		showSelectors = () => {
@@ -957,6 +999,7 @@ export async function renderTable(
 			// prepareLayout MUST run before any position calculation so all
 			// getBoundingClientRect() calls see the final padded layout.
 			prepareLayout();
+			repositionLockBtn();
 			showEdgeStrips();
 			showSelectors();
 		});

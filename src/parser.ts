@@ -22,8 +22,9 @@ export function parseTable(source: string): TableModel {
 	const title      = typeof yaml?.title  === 'string' ? yaml.title  : undefined;
 	const footer     = extractFooter(yaml?.footer);
 	const filter     = extractFilter(yaml?.filter);
+	const locked     = yaml?.locked === true ? true : undefined;
 
-	return { title, columns, rows, merges, styles, hiddenRows, rowHeights, footer, filter };
+	return { title, columns, rows, merges, styles, hiddenRows, rowHeights, footer, filter, locked };
 }
 
 function splitFrontmatter(lines: string[]): [string | null, string[]] {

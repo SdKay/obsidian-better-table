@@ -20,7 +20,8 @@ export type StructuralOp =
 	| { type: 'set-footer';      footer: string | string[] | undefined }
 	| { type: 'set-col-width';   colIdx: number; width: number }
 	| { type: 'set-row-height';  rowIdx: number; height: number }
-	| { type: 'set-filter';      colLetter: string; values: string[] | null };
+	| { type: 'set-filter';      colLetter: string; values: string[] | null }
+	| { type: 'toggle-lock' };
 
 export function applyStructuralOp(model: TableModel, op: StructuralOp): void {
 	switch (op.type) {
@@ -186,6 +187,9 @@ export function applyStructuralOp(model: TableModel, op: StructuralOp): void {
 			}
 			break;
 		}
+		case 'toggle-lock':
+			model.locked = !model.locked || undefined;
+			break;
 		case 'move-col': {
 			const { fromIdx, toIdx } = op;
 			if (fromIdx === toIdx) break;
