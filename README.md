@@ -154,7 +154,7 @@ The block starts with an optional YAML header (title, columns, merges, styles, f
 | Cell merging — drag-select → Merge in popup, or declare in YAML | ✅ |
 | Copy / paste between rich-table blocks or to / from Excel (merge state preserved) | 🔜 |
 | **Table structure** | |
-| Drag ⠿ handle to reorder rows / columns | ✅ |
+| Hover selector strips to reveal ⠿ drag grips on the outer edge; drag to reorder rows / columns | ✅ |
 | Hover the column / row selector strips to reveal resize seams; drag to resize, double-click to auto-fit | ✅ |
 | Hover bottom / right edge → **+** strips to append rows / columns | ✅ |
 | Hide and show rows / columns | ✅ |
@@ -179,6 +179,17 @@ Or: [Open in Obsidian](https://obsidian.md/plugins?id=rich-table)
 **Manual:** copy `main.js`, `manifest.json`, `styles.css` to `<vault>/.obsidian/plugins/rich-table/`
 
 Minimum Obsidian version: **1.8.7**
+
+---
+
+## Settings
+
+Open **Settings → Rich Table** to configure the plugin.
+
+| Setting | Default | Description |
+|---------|---------|-------------|
+| Allow editing in reading view | Off | When off, all interactive behaviour (hover strips, click-to-edit, panels, dropdowns) is disabled in Obsidian's reading view. Live preview / source mode is always interactive. |
+| Custom types | — | Define custom choice-column types with labels and colors. |
 
 ---
 
