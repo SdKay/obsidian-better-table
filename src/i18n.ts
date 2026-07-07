@@ -55,6 +55,9 @@ const EN = {
 	// Table lock
 	lockTable:   'Lock table (disable graphical editing)',
 	unlockTable: 'Unlock table (enable graphical editing)',
+
+	// Auto-fit all
+	autoFitAll: 'Auto-fit all column widths and row heights',
 } as const;
 
 const ZH: { [K in keyof typeof EN]: string } = {
@@ -98,6 +101,8 @@ const ZH: { [K in keyof typeof EN]: string } = {
 
 	lockTable:   '锁定表格（禁用图形化编辑）',
 	unlockTable: '解锁表格（启用图形化编辑）',
+
+	autoFitAll: '自动调整所有列宽和行高',
 };
 
 export function t(key: keyof typeof EN): string {

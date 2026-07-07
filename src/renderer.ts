@@ -445,7 +445,8 @@ export async function renderTable(
 	let hideSelectors     = () => { /* assigned in selector block */ };
 	let prepareLayout     = () => { /* assigned in selector block */ };
 	let restoreLayout     = () => { /* assigned in selector block */ };
-	let repositionLockBtn = () => { /* assigned in lock-button block */ };
+	let repositionLockBtn    = () => { /* assigned in lock-button block */ };
+	let repositionAutoFitBtn = () => { /* assigned in auto-fit-button block */ };
 
 	// ── Edge-hover add strips (CSS Grid cells inside bt-render-root) ──
 	if (onStructuralOp) {
@@ -546,6 +547,49 @@ export async function renderTable(
 
 		lockBtn.addEventListener('click', () => void onToggleLock());
 		table.addEventListener('bt-layout-changed', positionLockBtn);
+	}
+
+	// ── Auto-fit-all button (top-left corner, symmetric with lock button) ────
+	// Sits at the row-selector / col-selector intersection.
+	// Clicking auto-fits every visible column width and every row height.
+	if (onStructuralOp) {
+		const autoFitBtn = root.createDiv({
+			cls: 'bt-autofit-btn',
+			attr: { 'aria-label': t('autoFitAll'), 'data-tooltip-position': 'top' },
+		});
+		setIcon(autoFitBtn, 'maximize-2');
+
+		const positionAutoFitBtn = () => {
+			const tr = table.getBoundingClientRect();
+			const rr = root.getBoundingClientRect();
+			if (tr.width === 0) return;
+			// Center on row-selector label cells (18px wide, center at tl - 9)
+			// button 22px wide → left = tl - 9 - 11 = tl - 20
+			autoFitBtn.setCssProps({
+				'--afb-top':  `${tr.top - rr.top - 22}px`,
+				'--afb-left': `${tr.left - rr.left - 20}px`,
+			});
+		};
+		window.requestAnimationFrame(positionAutoFitBtn);
+		repositionAutoFitBtn = positionAutoFitBtn;
+		table.addEventListener('bt-layout-changed', positionAutoFitBtn);
+
+		autoFitBtn.addEventListener('click', () => {
+			// Auto-fit every visible column
+			for (const { colIdx } of visibleCols) {
+				const col = model.columns[colIdx];
+				if (!col) continue;
+				const fit = autoFitColWidth(table, colIdx, colMinWidth(col, getRegistry()));
+				void onStructuralOp({ type: 'set-col-width', colIdx, width: fit });
+			}
+			// Auto-fit every row (header + data, skip hidden)
+			const hiddenSet = new Set(model.hiddenRows ?? []);
+			for (let ri = 0; ri < model.rows.length; ri++) {
+				if (hiddenSet.has(ri)) continue;
+				const fit = autoFitRowHeight(table, ri, 24);
+				void onStructuralOp({ type: 'set-row-height', rowIdx: ri, height: fit });
+			}
+		});
 	}
 
 	// ── Row / column selector strips (Excel-style whole-row/column selection) ──
@@ -801,7 +845,8 @@ export async function renderTable(
 		restoreLayout = () => {
 			root.setCssProps({ '--bt-sel-pad': '0px' });
 			titleEl?.setCssProps({ '--bt-title-mb-adj': '0px' });
-			repositionLockBtn(); // lock btn position depends on tt which changes with padding
+			repositionLockBtn();
+			repositionAutoFitBtn();
 		};
 
 		showSelectors = () => {
@@ -1000,6 +1045,7 @@ export async function renderTable(
 			// getBoundingClientRect() calls see the final padded layout.
 			prepareLayout();
 			repositionLockBtn();
+			repositionAutoFitBtn();
 			showEdgeStrips();
 			showSelectors();
 		});
@@ -2246,11 +2292,15 @@ function setupColResize(
 function autoFitRowHeight(tbl: HTMLElement, rowIdx: number, minH: number): number {
 	const cells = Array.from(tbl.querySelectorAll<HTMLElement>(`[data-row="${rowIdx}"]`));
 	if (cells.length === 0) return minH;
+	// Exclude rowspan > 1 cells: their offsetHeight spans multiple rows so measuring
+	// them would inflate the single-row height (same guard as bindResizeHandle).
+	const single = cells.filter(c => (c as HTMLTableCellElement).rowSpan <= 1);
+	const targets = single.length > 0 ? single : cells;
 	// Temporarily clear the forced height so cells collapse to content, measure, restore.
 	const saved = cells.map(c => c.style.getPropertyValue('--bt-row-height'));
 	cells.forEach(c => c.style.removeProperty('--bt-row-height'));
 	let max = minH;
-	for (const c of cells) max = Math.max(max, c.offsetHeight);
+	for (const c of targets) max = Math.max(max, c.offsetHeight);
 	cells.forEach((c, i) => { const s = saved[i]; if (s) c.style.setProperty('--bt-row-height', s); });
 	return Math.ceil(max);
 }

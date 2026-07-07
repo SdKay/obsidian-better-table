@@ -157,6 +157,7 @@ The block starts with an optional YAML header (title, columns, merges, styles, f
 | **Table structure** | |
 | Hover selector strips to reveal ⠿ drag grips on the outer edge; drag to reorder rows / columns | ✅ |
 | Hover the column / row selector strips to reveal resize seams; drag to resize, double-click to auto-fit | ✅ |
+| Auto-fit-all button (top-left corner) — one click to auto-fit every column width and row height | ✅ |
 | Hover bottom / right edge → **+** strips to append rows / columns | ✅ |
 | Hide and show rows / columns | ✅ |
 | Freeze header row / first N columns | 🔜 |

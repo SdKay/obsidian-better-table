@@ -160,6 +160,32 @@
 	z-index: 11;
 }
 .bt-lock-btn svg { width: 13px; height: 13px; }
+
+/* ── Auto-fit-all button (top-left corner, symmetric with lock button) ───── */
+.bt-autofit-btn {
+	position: absolute;
+	top:  var(--afb-top,  -22px);
+	left: var(--afb-left, -20px);
+	width: 22px;
+	height: 18px;
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	cursor: pointer;
+	border-radius: var(--radius-s);
+	opacity: 0;
+	transition: opacity 0.08s;
+	color: var(--text-faint);
+	z-index: 11;
+}
+.bt-autofit-btn svg { width: 13px; height: 13px; }
+.bt-render-root:hover .bt-autofit-btn {
+	opacity: 1;
+}
+.bt-autofit-btn:hover {
+	background: var(--background-modifier-hover);
+	color: var(--text-normal);
+}
 .bt-render-root:hover .bt-lock-btn,
 .bt-lock-btn.is-locked {
 	opacity: 1;

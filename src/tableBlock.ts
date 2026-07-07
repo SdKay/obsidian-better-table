@@ -43,7 +43,7 @@ footer: "单击编辑 · 双击弹出操作菜单 · 拖拽 ⠿ 排序"
 | 样式设置   | 双击单格设置样式 · 悬停左/上条带选整行/列        | todo    |                   |
 | 行筛选     | 列标题漏斗图标 → 勾选要显示的值                  | todo    |                   |
 | 拖拽排序   | 悬停选择条，从外侧 ⠿ 手柄拖拽排序行 / 列        | todo    |                   |
-| 调整宽高   | 悬停选择条拖拽调整 · 双击自动适配内容            | todo    |                   |
+| 调整宽高   | 悬停选择条拖拽调整 · 双击自动适配 · 左上角一键全部自适应 | todo    |                   |
 `;
 	}
 	return `\
@@ -72,7 +72,7 @@ footer: "Single-click to edit · double-click for cell menu · drag ⠿ to reord
 | Cell style    | Double-click cell · hover left/top strip for row/col style | todo    |                   |
 | Filter        | Funnel icon on column header → check values to show       | todo    |                   |
 | Reorder       | Hover selector strip · drag ⠿ grip on outer edge | todo    |                   |
-| Resize        | Hover selector strip · drag seam · double-click to auto-fit | todo    |                   |
+| Resize        | Hover selector strip · drag/dbl-click to resize · top-left ⊞ to auto-fit all | todo    |                   |
 `;
 }
 
