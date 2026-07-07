@@ -3,6 +3,38 @@
 .bt-render-root {
 	position: relative;
 }
+/* All overlay strips (col/row selectors + edge-add buttons) use position:absolute
+ * within root. Coordinates are set from getBoundingClientRect() deltas so they
+ * track the TABLE's actual position regardless of how the theme aligns the table
+ * within the wrapper (e.g. margin:auto centering).
+ * --bt-sel-pad is set by JS to 22px on hover-show and back to 0px on hide, which
+ * creates space for the col-selector strip without permanently shifting the table. */
+.bt-render-root.bt-has-strips {
+	padding-top: var(--bt-sel-pad, 0px);
+}
+/* --bt-title-mb-adj is set by JS to 9px on show (cancelling the -9px pull) so the
+ * col-selector strip does not overlap the title text during hover. */
+.bt-table-title {
+	margin: 0 0 calc(-9px + var(--bt-title-mb-adj, 0px));
+}
+.bt-render-root.bt-has-strips .bt-col-selector {
+	position: absolute;
+	left:   var(--cs-left,  0px);
+	top:    var(--cs-top,   0px);
+	width:  var(--cs-width, 100px);
+	height: 22px;
+}
+.bt-render-root.bt-has-strips .bt-row-selector {
+	position: absolute;
+	left:   var(--rs-left,  -22px);
+	top:    var(--rs-top,   22px);
+	width:  22px;
+	height: var(--rs-height, 100px);
+}
+.bt-render-root.bt-has-strips .bt-edge-add-row,
+.bt-render-root.bt-has-strips .bt-edge-add-col {
+	position: absolute;
+}
 
 .bt-table-wrapper {
 	overflow-x: auto;
@@ -106,7 +138,8 @@
 /* ── Row / column selector strips (Excel-style whole-row/col selection) ─── */
 .bt-col-selector,
 .bt-row-selector {
-	position: absolute;
+	/* position:relative so absolute-positioned .bt-sel-cell children are contained */
+	position: relative;
 	z-index: 10;
 	visibility: hidden;
 	pointer-events: none;
@@ -118,18 +151,6 @@
 	visibility: visible;
 	pointer-events: auto;
 	opacity: 1;
-}
-.bt-col-selector {
-	top:  var(--cs-top,  0px);
-	left: var(--cs-left, 0px);
-	width:  var(--cs-w, 100px);
-	height: 20px;
-}
-.bt-row-selector {
-	top:  var(--rs-top, 0px);
-	left: var(--rs-left, 0px);
-	width:  20px;
-	height: var(--rs-h, 100px);
 }
 .bt-sel-cell {
 	position: absolute;
@@ -210,7 +231,6 @@
 /* ── Edge-hover add strips ─────────────────────────────────────────────────── */
 .bt-edge-add-row,
 .bt-edge-add-col {
-	position: absolute;
 	z-index: 10;
 	display: flex;
 	align-items: center;
@@ -234,19 +254,19 @@
 }
 
 .bt-edge-add-row {
-	top: var(--strip-top, 0px);
-	left: var(--strip-left, 0px);
-	width: var(--strip-width, 100px);
-	height: 18px;
 	cursor: pointer;
+	top:    var(--strip-top,   0px);
+	left:   var(--strip-left,  0px);
+	width:  var(--strip-width, 100px);
+	height: 18px;
 }
 
 .bt-edge-add-col {
-	top: var(--strip-top, 0px);
-	left: var(--strip-left, 0px);
-	width: 18px;
-	height: var(--strip-height, 40px);
 	cursor: pointer;
+	top:    var(--strip-top,    0px);
+	left:   var(--strip-left,   0px);
+	width:  18px;
+	height: var(--strip-height, 40px);
 }
 
 .bt-edge-add-row:hover,

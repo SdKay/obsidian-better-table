@@ -431,13 +431,23 @@ export async function renderTable(
 
 	// Shared show/hide hooks for the two hover overlays (edge-add strips + selector
 	// strips). Assigned inside their blocks; driven by one proximity handler below.
-	let showEdgeStrips = () => { /* assigned in edge block */ };
-	let hideEdgeStrips = () => { /* assigned in edge block */ };
-	let showSelectors  = () => { /* assigned in selector block */ };
-	let hideSelectors  = () => { /* assigned in selector block */ };
+	//
+	// prepareLayout / restoreLayout are called by the proximity handler BEFORE any
+	// show/hide call so that ALL position calculations see the same, correct layout.
+	// This prevents cascading errors when padding-top changes on root (which shifts
+	// the table and would invalidate any positions computed before the change).
+	let showEdgeStrips  = () => { /* assigned in edge block */ };
+	let hideEdgeStrips  = () => { /* assigned in edge block */ };
+	let showSelectors   = () => { /* assigned in selector block */ };
+	let hideSelectors   = () => { /* assigned in selector block */ };
+	let prepareLayout   = () => { /* assigned in selector block */ };
+	let restoreLayout   = () => { /* assigned in selector block */ };
 
-	// ── Edge-hover add strips (position:absolute inside bt-render-root) ──
+	// ── Edge-hover add strips (CSS Grid cells inside bt-render-root) ──
 	if (onStructuralOp) {
+		// Mark root to activate the CSS Grid layout that hosts the selector and
+		// edge-add strips around the table wrapper.
+		root.addClass('bt-has-strips');
 		const addRowBtn = root.createDiv({ cls: 'bt-edge-add-row' });
 		addRowBtn.createSpan({ cls: 'bt-edge-plus', text: '+' });
 
@@ -449,21 +459,24 @@ export async function renderTable(
 		addColBtn.addEventListener('click', () =>
 			void onStructuralOp({ type: 'insert-col', afterColIdx: model.columns.length - 1 }));
 
-		// position:absolute — no viewport math, no scroll listeners needed.
-		// Offsets are relative to bt-render-root, updated when table size changes.
-		const positionStrips = () => {
-			const tw = table.offsetWidth;
-			const th = table.offsetHeight;
-			const wl = wrapper.offsetLeft;
-			const wt = wrapper.offsetTop;
+		// Edge-add strips use position:absolute within root so they track the TABLE
+		// dimensions (not the wrapper, which fills 1fr of the grid = full content width).
+		// Coordinates are root-relative: getBoundingClientRect delta, not viewport coords.
+		const positionEdgeStrips = () => {
+			const tr = table.getBoundingClientRect();
+			const rr = root.getBoundingClientRect();
+			const tl = tr.left - rr.left;
+			const tt = tr.top  - rr.top;
+			const tw = tr.width;
+			const th = tr.height;
 			addRowBtn.setCssProps({
-				'--strip-top':   `${wt + th + 2}px`,
-				'--strip-left':  `${wl}px`,
+				'--strip-top':   `${tt + th + 2}px`,
+				'--strip-left':  `${tl}px`,
 				'--strip-width': `${tw}px`,
 			});
 			addColBtn.setCssProps({
-				'--strip-top':    `${wt}px`,
-				'--strip-left':   `${wl + tw + 2}px`,
+				'--strip-top':    `${tt}px`,
+				'--strip-left':   `${tl + tw + 2}px`,
 				'--strip-height': `${th}px`,
 			});
 		};
@@ -483,18 +496,26 @@ export async function renderTable(
 
 		showEdgeStrips = () => {
 			cancelHide();
-			positionStrips();
+			positionEdgeStrips();
 			addRowBtn.addClass('bt-strip-visible');
 			addColBtn.addClass('bt-strip-visible');
 		};
 		hideEdgeStrips = scheduleHide;
-		// No scroll listener needed — absolute positioning moves with the document flow.
+
+		// Reposition when table geometry changes (column resize, row height change).
+		table.addEventListener('bt-layout-changed', () => {
+			if (addRowBtn.hasClass('bt-strip-visible')) positionEdgeStrips();
+		});
 	}
 
 	// ── Row / column selector strips (Excel-style whole-row/column selection) ──
 	if (onStructuralOp) {
-		// Selectors are children of bt-render-root (position:absolute), so they are
-		// naturally contained within Obsidian's content pane — no viewport math needed.
+		// Capture the title element (previous sibling of root, if present) so we can
+		// neutralise its -9px margin while the selector is visible — without this the
+		// col-selector strip at root's top overlaps the title's last 9px of content.
+		const prev = root.previousElementSibling;
+		const titleEl = (prev instanceof HTMLElement && prev.hasClass('bt-table-title')) ? prev : null;
+
 		const colSel = root.createDiv({ cls: 'bt-col-selector' });
 		const rowSel = root.createDiv({ cls: 'bt-row-selector' });
 
@@ -513,17 +534,6 @@ export async function renderTable(
 				h, table, `data-row="${ri}"`, '--bt-row-height', 24,
 				(height) => void onStructuralOp({ type: 'set-row-height', rowIdx: ri, height }),
 				component,
-				() => {
-					// Reposition edge-add strips after row height changes
-					const addRow = root.querySelector<HTMLElement>('.bt-edge-add-row.bt-strip-visible');
-					const addCol = root.querySelector<HTMLElement>('.bt-edge-add-col.bt-strip-visible');
-					if (addRow || addCol) {
-						const tw = table.offsetWidth, th = table.offsetHeight;
-						const wl = wrapper.offsetLeft, wt = wrapper.offsetTop;
-						addRow?.setCssProps({ '--strip-top': `${wt + th + 2}px`, '--strip-left': `${wl}px`, '--strip-width': `${tw}px` });
-						addCol?.setCssProps({ '--strip-top': `${wt}px`, '--strip-left': `${wl + tw + 2}px`, '--strip-height': `${th}px` });
-					}
-				},
 			);
 			h.addEventListener('dblclick', (e: MouseEvent) => {
 				e.stopPropagation();
@@ -559,16 +569,10 @@ export async function renderTable(
 
 		const rebuild = () => {
 			updateTableHighlights();
-			// Offsets relative to bt-render-root (the position:relative container).
-			const wl = wrapper.offsetLeft;   // wrapper left edge within root
-			const wt = wrapper.offsetTop;    // wrapper top edge within root
-			const tw = table.offsetWidth;
-			const th = table.offsetHeight;
 
-			// Column selector — one cell per physical column from <col> geometry,
-			// independent of any colspan merges in the header row.
+			// Column selector — cells positioned by --cl/--cw relative to the selector's
+			// own left edge, which CSS Grid aligns with the table wrapper automatically.
 			colSel.querySelectorAll('.bt-sel-cell').forEach(e => e.remove());
-			colSel.setCssProps({ '--cs-top': `${wt - 22}px`, '--cs-left': `${wl}px`, '--cs-w': `${tw}px` });
 			// Pre-index hidden-group indicators from the header by their left-edge x.
 			const hiddenGroupByX = new Map<number, number[]>();
 			let hiddenColX = 0;
@@ -616,20 +620,24 @@ export async function renderTable(
 				colX += w;
 			}
 
-			// Row selector (left of table).
-			// Remove only label cells; the persistent resize handles stay.
+			// Row selector — cells positioned by --rt/--rh relative to the selector's
+			// own top edge, which CSS Grid aligns with the table wrapper automatically.
 			rowSel.querySelectorAll('.bt-sel-cell').forEach(e => e.remove());
-			rowSel.setCssProps({ '--rs-top': `${wt}px`, '--rs-left': `${wl - 22}px`, '--rs-h': `${th}px` });
 			const allTrs = [
 				...Array.from(thead.querySelectorAll<HTMLElement>('tr')),
 				...Array.from(tbody.querySelectorAll<HTMLElement>('tr')),
 			];
 			// Row selector — one cell per physical row, independent of rowspan merges.
+			// Use getBoundingClientRect() for row positions: tr.offsetTop is relative to
+			// tr.offsetParent which can be tbody (not table), causing all tbody rows to
+			// report offsetTop=0. getBoundingClientRect() always gives viewport coords
+			// so subtracting table's top gives the correct table-relative offset.
+			const tableTop = table.getBoundingClientRect().top;
 			for (const tr of allTrs) {
 				if (!tr) continue;
-				// offsetTop relative to the table element → add wt to get root offset
-				const rowTop = tr.offsetTop;
-				const rowH   = tr.offsetHeight;
+				const trRect = tr.getBoundingClientRect();
+				const rowTop = trRect.top - tableTop;
+				const rowH   = trRect.height;
 				if (tr.hasClass('bt-row-indicator')) {
 					const group = JSON.parse(tr.dataset.hiddenGroup ?? '[]') as number[];
 					const cell = rowSel.createDiv({ cls: 'bt-sel-cell bt-sel-hidden' });
@@ -666,7 +674,8 @@ export async function renderTable(
 				const firstCell = table.querySelector<HTMLElement>(`[data-row="${ri}"]`);
 				const tr = firstCell?.closest<HTMLElement>('tr');
 				if (tr) {
-					h.setCssProps({ '--ry': `${tr.offsetTop + tr.offsetHeight}px` });
+					const trR = tr.getBoundingClientRect();
+					h.setCssProps({ '--ry': `${trR.bottom - tableTop}px` });
 					h.removeClass('bt-sel-resize-hidden');
 				} else {
 					h.addClass('bt-sel-resize-hidden');
@@ -675,25 +684,56 @@ export async function renderTable(
 		};
 
 		let selHideTimer: number | null = null;
-		const showSel = () => {
-			if (selHideTimer) { window.clearTimeout(selHideTimer); selHideTimer = null; }
-			rebuild();
-			colSel.addClass('bt-strip-visible');
-			rowSel.addClass('bt-strip-visible');
-		};
 		const scheduleSelHide = () => {
 			if (selAxis !== null) return;
 			if (selHideTimer) window.clearTimeout(selHideTimer);
 			selHideTimer = window.setTimeout(() => {
 				colSel.removeClass('bt-strip-visible');
 				rowSel.removeClass('bt-strip-visible');
+				restoreLayout();
 				selHideTimer = null;
 			}, 80);
 		};
 
-		showSelectors = showSel;
+		// Position selectors by tracking the table's actual getBoundingClientRect
+		// relative to root — handles theme-centered tables (margin:auto) correctly.
+		const positionSelectors = () => {
+			const tr = table.getBoundingClientRect();
+			const rr = root.getBoundingClientRect();
+			const tl = tr.left - rr.left;
+			const tt = tr.top  - rr.top;
+			colSel.setCssProps({
+				'--cs-left':  `${tl}px`,
+				'--cs-top':   `${tt - 22}px`,
+				'--cs-width': `${tr.width}px`,
+			});
+			rowSel.setCssProps({
+				'--rs-left':   `${tl - 22}px`,
+				'--rs-top':    `${tt}px`,
+				'--rs-height': `${tr.height}px`,
+			});
+		};
+
+		// prepareLayout / restoreLayout are called by the proximity handler BEFORE
+		// show/hide so that positionEdgeStrips() and positionSelectors() both see
+		// the same layout (table already shifted by --bt-sel-pad).
+		prepareLayout = () => {
+			root.setCssProps({ '--bt-sel-pad': '22px' });
+			titleEl?.setCssProps({ '--bt-title-mb-adj': '9px' });
+		};
+		restoreLayout = () => {
+			root.setCssProps({ '--bt-sel-pad': '0px' });
+			titleEl?.setCssProps({ '--bt-title-mb-adj': '0px' });
+		};
+
+		showSelectors = () => {
+			if (selHideTimer) { window.clearTimeout(selHideTimer); selHideTimer = null; }
+			positionSelectors();
+			rebuild();
+			colSel.addClass('bt-strip-visible');
+			rowSel.addClass('bt-strip-visible');
+		};
 		hideSelectors = scheduleSelHide;
-		// Removed: scroll listener (position:absolute, no repositioning needed)
 
 		let selectorPanel: HTMLElement | null = null;
 		const closeSelectorPanel = () => {
@@ -795,33 +835,27 @@ export async function renderTable(
 		rowSel.addEventListener('pointermove', (e: PointerEvent) => moveDrag('row', e));
 		rowSel.addEventListener('pointerup', () => endDrag('row'));
 
-		// Column/row resize changes cell geometry → rebuild selector strip cells
+		// Column/row resize changes cell geometry → reposition + rebuild selector strips
 		table.addEventListener('bt-layout-changed', () => {
-			if (colSel.hasClass('bt-strip-visible') || rowSel.hasClass('bt-strip-visible')) rebuild();
+			if (colSel.hasClass('bt-strip-visible') || rowSel.hasClass('bt-strip-visible')) {
+				positionSelectors();
+				rebuild();
+			}
 		});
 	}
 
-	// ── Proximity-based reveal via the root container ─────────────────────────
-	// Hovering the root container (which includes the selector/edge-add margin
-	// areas) shows all overlays. No viewport math needed — just mouseenter/leave.
+	// ── Show/hide overlays on mouse enter/leave ───────────────────────────────
+	// With CSS Grid, root already includes all strip areas — hovering them fires
+	// enter/leave naturally. No viewport math or rAF throttling needed.
 	if (onStructuralOp) {
-		const NEAR_MARGIN = 34; // extra CSS padding on root exposes this hover zone
-		root.setCssProps({ '--hover-margin': `${NEAR_MARGIN}px` });
-
-		let wasNear = false;
-		let proxRaf = 0;
-		component.registerDomEvent(activeDocument, 'mousemove', (e: MouseEvent) => {
-			const x = e.clientX, y = e.clientY;
-			if (proxRaf) return;
-			proxRaf = window.requestAnimationFrame(() => {
-				proxRaf = 0;
-				const r = root.getBoundingClientRect();
-				const near = x >= r.left - NEAR_MARGIN && x <= r.right + NEAR_MARGIN &&
-				             y >= r.top - NEAR_MARGIN && y <= r.bottom + NEAR_MARGIN;
-				if (near && !wasNear) { showEdgeStrips(); showSelectors(); wasNear = true; }
-				else if (!near && wasNear) { hideEdgeStrips(); hideSelectors(); wasNear = false; }
-			});
-		}, { passive: true });
+		root.addEventListener('mouseenter', () => {
+			// prepareLayout MUST run before any position calculation so all
+			// getBoundingClientRect() calls see the final padded layout.
+			prepareLayout();
+			showEdgeStrips();
+			showSelectors();
+		});
+		root.addEventListener('mouseleave', () => { hideEdgeStrips(); hideSelectors(); });
 	}
 }
 
@@ -1944,15 +1978,23 @@ function autoFitColWidth(tbl: HTMLElement, colIdx: number, minW: number): number
 			continue;
 		}
 
-		// 3. Data cell with text: use a Range to get the rendered text width.
-		//    getBoundingClientRect on a Range gives the tightest bounding box of the
-		//    selected content — unlike cell.scrollWidth it doesn't equal the cell width.
+		// 3. Data cell with text: measure the tight bounding box of inline content.
+		//    MarkdownRenderer wraps content in a block <p> whose width equals the cell's
+		//    content area — selecting the cell directly gives that content-area width, not
+		//    the text width. Adding padH+borderH back causes each double-click to grow the
+		//    column by ~1px due to Math.ceil on sub-pixel fractions.
+		//    Fix: select the contents *of* each <p> (inline nodes) so the Range covers only
+		//    the actual text/inline elements, whose bounding rect is the natural text width.
 		const text = cell.textContent?.trim() ?? '';
 		if (text) {
-			const range = activeDocument.createRange();
-			range.selectNodeContents(cell);
-			const rw = range.getBoundingClientRect().width;
-			if (rw > 0) max = Math.max(max, rw + padH + borderH);
+			const pEls = Array.from(cell.querySelectorAll<HTMLElement>('p'));
+			const targets: HTMLElement[] = pEls.length > 0 ? pEls : [cell];
+			for (const target of targets) {
+				const range = activeDocument.createRange();
+				range.selectNodeContents(target);
+				const rw = range.getBoundingClientRect().width;
+				if (rw > 0) max = Math.max(max, rw + padH + borderH);
+			}
 		}
 		// Empty data cell: skip — its scrollWidth == current cell width,
 		// using it would cause the column to grow on every double-click.
@@ -2057,18 +2099,7 @@ function setupColResize(
 			tbl.style.setProperty('width', `${sum}px`);
 
 			if (colLine) colLine.setCssProps({ '--ri-x': `${colRightX(tbl, colIdx)}px` });
-			// Reposition edge-add strips (root-relative coords, no getBoundingClientRect needed)
-			const addRow = tbl.closest<HTMLElement>('.bt-render-root')
-				?.querySelector<HTMLElement>('.bt-edge-add-row.bt-strip-visible');
-			const addCol = tbl.closest<HTMLElement>('.bt-render-root')
-				?.querySelector<HTMLElement>('.bt-edge-add-col.bt-strip-visible');
-			if (addRow || addCol) {
-				const wl2 = tbl.closest<HTMLElement>('.bt-table-wrapper')?.offsetLeft ?? 0;
-				const wt2 = tbl.closest<HTMLElement>('.bt-table-wrapper')?.offsetTop  ?? 0;
-				const tw2 = tbl.offsetWidth, th2 = tbl.offsetHeight;
-				addRow?.setCssProps({ '--strip-top': `${wt2 + th2 + 2}px`, '--strip-left': `${wl2}px`, '--strip-width': `${tw2}px` });
-				addCol?.setCssProps({ '--strip-top': `${wt2}px`, '--strip-left': `${wl2 + tw2 + 2}px`, '--strip-height': `${th2}px` });
-			}
+			// Grid auto-updates edge-add strip sizes — no manual repositioning needed.
 			tbl.dispatchEvent(new CustomEvent('bt-layout-changed'));
 		};
 
