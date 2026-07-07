@@ -1,4 +1,4 @@
-import { Plugin } from 'obsidian';
+import { MarkdownView, Plugin } from 'obsidian';
 import { BetterTableSettingTab, DEFAULT_SETTINGS } from './settings';
 import { ChoiceRegistry } from './choiceRegistry';
 import { TableBlock } from './tableBlock';
@@ -33,5 +33,13 @@ export default class BetterTablePlugin extends Plugin {
 	async saveSettings(): Promise<void> {
 		await this.saveData(this.settings);
 		this.choiceRegistry = new ChoiceRegistry(this.settings.customChoices);
+		// Re-render all open reading views so allowReadingViewEdit takes effect
+		// immediately without requiring the user to close and reopen the note.
+		this.app.workspace.getLeavesOfType('markdown').forEach(leaf => {
+			const view = leaf.view;
+			if (view instanceof MarkdownView && view.getMode() === 'preview') {
+				view.previewMode.rerender(true);
+			}
+		});
 	}
 }

@@ -4,6 +4,7 @@ import type { BetterTableSettings, ChoiceType } from './model';
 
 export const DEFAULT_SETTINGS: BetterTableSettings = {
 	customChoices: [],
+	allowReadingViewEdit: false,
 };
 
 export class BetterTableSettingTab extends PluginSettingTab {
@@ -17,6 +18,25 @@ export class BetterTableSettingTab extends PluginSettingTab {
 	display(): void {
 		const { containerEl } = this;
 		containerEl.empty();
+
+		// ── General ───────────────────────────────────────────────────────────
+		new Setting(containerEl).setHeading().setName('General');
+
+		new Setting(containerEl)
+			.setName('Allow editing in reading view')
+			.setDesc(
+				'When off (default), all interactive behaviour — hover selector strips, ' +
+				'click-to-edit, double-click panels, choice dropdowns — is disabled in ' +
+				"Obsidian's reading view. Live preview / source mode is always interactive.",
+			)
+			.addToggle(toggle =>
+				toggle
+					.setValue(this.plugin.settings.allowReadingViewEdit)
+					.onChange(async (value) => {
+						this.plugin.settings.allowReadingViewEdit = value;
+						await this.plugin.saveSettings();
+					}),
+			);
 
 		// ── Built-in types (informational) ───────────────────────────────────
 		new Setting(containerEl).setHeading().setName('Built-in types');

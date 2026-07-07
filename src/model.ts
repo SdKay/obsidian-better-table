@@ -62,4 +62,10 @@ export interface ChoiceType {
 
 export interface BetterTableSettings {
 	customChoices: ChoiceType[];
+	/**
+	 * When false (default), all interactive behaviour (hover strips, click-to-edit,
+	 * double-click panels, choice dropdowns) is disabled in Obsidian's reading view.
+	 * Live preview / source mode is never affected by this setting.
+	 */
+	allowReadingViewEdit: boolean;
 }

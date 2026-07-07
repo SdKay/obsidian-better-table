@@ -115,6 +115,13 @@ export class TableBlock extends MarkdownRenderChild {
 	private async render(): Promise<void> {
 		const tmp = createDiv();
 		const isEmpty = this.source.trim() === '';
+
+		// Disable all interactive callbacks in reading view unless the setting allows it.
+		// containerEl.closest() works reliably here because the block is already attached
+		// to the DOM before render() is called (via the cache-inject path in onload).
+		const isReadingView = !!(this.containerEl.closest('.markdown-reading-view'));
+		const editAllowed = !isReadingView || this.plugin.settings.allowReadingViewEdit;
+
 		try {
 			const source = isEmpty ? getEmptyTemplate() : this.source;
 			this.model = parseTable(source);
@@ -125,9 +132,9 @@ export class TableBlock extends MarkdownRenderChild {
 				this.plugin.app,
 				this.sourcePath,
 				this,
-				isEmpty ? undefined : (row, col, value) => this.handleCellChange(row, col, value),
-				isEmpty ? undefined : (colIdx, newType) => this.handleColTypeChange(colIdx, newType),
-				isEmpty ? undefined : (op) => this.handleStructuralOp(op),
+				(isEmpty || !editAllowed) ? undefined : (row, col, value) => this.handleCellChange(row, col, value),
+				(isEmpty || !editAllowed) ? undefined : (colIdx, newType) => this.handleColTypeChange(colIdx, newType),
+				(isEmpty || !editAllowed) ? undefined : (op) => this.handleStructuralOp(op),
 			);
 			if (isEmpty) {
 				const banner = createDiv({ cls: 'bt-template-banner' });
