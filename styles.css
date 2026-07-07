@@ -272,7 +272,7 @@
 .bt-sel-resize-col {
 	position: absolute;
 	top: 0;
-	height: 20px;
+	height: 32px; /* match full col-selector height (was 20px, selector grew to 32px) */
 	width: 9px;
 	left: var(--rx, 0px);
 	transform: translateX(-50%);
@@ -282,7 +282,7 @@
 .bt-sel-resize-row {
 	position: absolute;
 	left: 0;
-	width: 20px;
+	width: 32px; /* match full row-selector width (was 20px, selector grew to 32px) */
 	height: 9px;
 	top: var(--ry, 0px);
 	transform: translateY(-50%);
