@@ -58,6 +58,7 @@ const EN = {
 	lockTable:   'Lock table (disable graphical editing)',
 	unlockTable: 'Unlock table (enable graphical editing)',
 
+
 	// Auto-fit all
 	autoFitAll: 'Auto-fit all column widths and row heights',
 } as const;
@@ -114,6 +115,12 @@ export function t(key: keyof typeof EN): string {
 }
 
 // ── Dynamic label helpers ─────────────────────────────────────────────────────
+
+export function tableVersionTooHighMsg(tableV: number, curV: number): string {
+	return isZh()
+		? `该表格由更高版本的 Rich Table（格式 v${tableV}）保存，当前插件最高支持 v${curV}，请升级插件后查看。`
+		: `This table was saved with Rich Table format v${tableV}, but the installed plugin only supports up to v${curV}. Please upgrade the plugin.`;
+}
 
 export function rowRangeLabel(r1: number, r2: number): string {
 	if (isZh()) return r1 === r2 ? `第${r1 + 1}行` : `第${r1 + 1}–${r2 + 1}行`;

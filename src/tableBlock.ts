@@ -1,5 +1,6 @@
-import { MarkdownPostProcessorContext, MarkdownRenderChild, TFile } from 'obsidian';
-import { isZh, t } from './i18n';
+import { MarkdownPostProcessorContext, MarkdownRenderChild, TFile, setIcon } from 'obsidian';
+import { isZh, t, tableVersionTooHighMsg } from './i18n';
+import { CURRENT_TABLE_VERSION, getTableVersion, migrateSource } from './tableVersion';
 import type BetterTablePlugin from './main';
 import type { TableModel } from './model';
 import { parseTable } from './parser';
@@ -115,6 +116,36 @@ export class TableBlock extends MarkdownRenderChild {
 	private async render(): Promise<void> {
 		const tmp = createDiv();
 		const isEmpty = this.source.trim() === '';
+
+		// ── Format-version gate ───────────────────────────────────────────────
+		if (!isEmpty) {
+			const tableV = getTableVersion(this.source);
+			if (tableV > CURRENT_TABLE_VERSION) {
+				// Table was written by a newer plugin — refuse to parse and tell the user.
+				const banner = tmp.createDiv({ cls: 'bt-version-banner' });
+				const icon = banner.createSpan({ cls: 'bt-version-banner-icon' });
+				setIcon(icon, 'arrow-up-circle');
+				const msg = banner.createDiv({ cls: 'bt-version-banner-body' });
+				msg.createSpan({ text: tableVersionTooHighMsg(tableV, CURRENT_TABLE_VERSION) });
+				const btn = msg.createEl('button', {
+					cls: 'bt-version-banner-btn',
+					text: isZh() ? '前往社区商店升级' : 'Open in Community Store',
+				});
+				btn.addEventListener('click', () => {
+					window.open('obsidian://show-plugin?id=rich-table');
+				});
+				this.containerEl.empty();
+				while (tmp.firstChild) this.containerEl.appendChild(tmp.firstChild);
+				return;
+			}
+			if (tableV < CURRENT_TABLE_VERSION) {
+				// Table is older — auto-migrate, write back, then continue rendering.
+				await this.applyMigration(tableV);
+				// applyMigration updates this.source in-place via vault.process;
+				// render() will be re-triggered by the vault change event, so return here.
+				return;
+			}
+		}
 
 		// Disable all interactive callbacks in reading view unless the setting allows it.
 		// containerEl.closest() works reliably here because the block is already attached
@@ -233,6 +264,24 @@ export class TableBlock extends MarkdownRenderChild {
 		if (!(file instanceof TFile)) return;
 
 		await writeBackModel(this.model, this.containerEl, this.ctx, this.plugin.app.vault, file);
+	}
+
+	/** Migrate the source from `fromVersion` to CURRENT_TABLE_VERSION and write it back.
+	 *  The vault change will re-trigger render(), so the caller should return immediately. */
+	private async applyMigration(fromVersion: number): Promise<void> {
+		const file = this.plugin.app.vault.getAbstractFileByPath(this.sourcePath);
+		if (!(file instanceof TFile)) return;
+		const info = this.ctx.getSectionInfo(this.containerEl);
+		if (!info) return;
+		const migratedSource = migrateSource(this.source, fromVersion);
+		await this.plugin.app.vault.process(file, content => {
+			const lines = content.split('\n');
+			return [
+				...lines.slice(0, info.lineStart + 1),
+				...migratedSource.trimEnd().split('\n'),
+				...lines.slice(info.lineEnd),
+			].join('\n');
+		});
 	}
 
 	private async insertTemplate(): Promise<void> {

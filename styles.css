@@ -1024,6 +1024,44 @@
 	background: var(--interactive-accent-hover);
 }
 
+/* Version-too-high notice — softer warning style, not a hard error */
+.bt-version-banner {
+	display: flex;
+	align-items: flex-start;
+	gap: var(--size-4-2);
+	padding: var(--size-4-3) var(--size-4-4);
+	background: color-mix(in srgb, var(--color-yellow) 10%, transparent);
+	border: 1px solid color-mix(in srgb, var(--color-yellow) 40%, transparent);
+	border-radius: var(--radius-m);
+	font-size: var(--font-ui-small);
+	color: var(--text-normal);
+	line-height: 1.5;
+}
+.bt-version-banner-icon {
+	flex-shrink: 0;
+	color: var(--color-yellow);
+	margin-top: 1px;
+}
+.bt-version-banner-icon svg { width: 16px; height: 16px; }
+.bt-version-banner-body {
+	display: flex;
+	flex-direction: column;
+	gap: var(--size-4-2);
+}
+.bt-version-banner-btn {
+	align-self: flex-start;
+	padding: 3px var(--size-4-3);
+	border-radius: var(--radius-s);
+	border: 1px solid color-mix(in srgb, var(--color-yellow) 50%, transparent);
+	background: color-mix(in srgb, var(--color-yellow) 15%, transparent);
+	color: var(--text-normal);
+	font-size: var(--font-ui-small);
+	cursor: pointer;
+}
+.bt-version-banner-btn:hover {
+	background: color-mix(in srgb, var(--color-yellow) 25%, transparent);
+}
+
 /* Error display */
 .bt-error {
 	padding: var(--size-4-2) var(--size-4-3);
