@@ -1336,14 +1336,18 @@ async function renderDataCell(
 		if (onStructuralOp) {
 			el.addEventListener('dblclick', (evt: MouseEvent) => {
 				const ops = dataCellOps(rowIdx, colIdx, model, onStructuralOp);
+				const sTarget = cellStyleTarget(rowIdx, colIdx, model.merges);
+				const isMerge = sTarget.includes(':');
 				openCellPanel({
 					anchor: el, els: [el],
-					styleTarget: colIndexToLetter(colIdx) + (rowIdx + 1),
+					styleTarget: sTarget,
 					existingStyle: cellEffectiveStyle(model, rowIdx, colIdx),
-				inheritedStyle: cellInheritedStyle(model, rowIdx, colIdx),
-					showTextColor: !!getMergeOrigin(rowIdx, colIdx, model.merges),
+					inheritedStyle: cellInheritedStyle(model, rowIdx, colIdx, sTarget),
+					showTextColor: isMerge,
 					cellOps: ops,
-					onApplyStyle: (bg, color, size) => void onStructuralOp({ type: 'set-cell-style', rowIdx, colIdx, bg, color, size }),
+					onApplyStyle: isMerge
+						? (bg, color, size) => void onStructuralOp({ type: 'set-range-style', target: sTarget, bg, color, size })
+						: (bg, color, size) => void onStructuralOp({ type: 'set-cell-style', rowIdx, colIdx, bg, color, size }),
 				});
 			});
 		}
@@ -1383,14 +1387,18 @@ async function renderDataCell(
 		el.addEventListener('dblclick', () => {
 			if (el.hasClass('bt-editing')) return;
 			const ops = dataCellOps(rowIdx, colIdx, model, onStructuralOp);
+			const sTarget = cellStyleTarget(rowIdx, colIdx, model.merges);
+			const isMerge = sTarget.includes(':');
 			openCellPanel({
 				anchor: el, els: [el],
-				styleTarget: colIndexToLetter(colIdx) + (rowIdx + 1),
+				styleTarget: sTarget,
 				existingStyle: cellEffectiveStyle(model, rowIdx, colIdx),
-				inheritedStyle: cellInheritedStyle(model, rowIdx, colIdx),
+				inheritedStyle: cellInheritedStyle(model, rowIdx, colIdx, sTarget),
 				showTextColor: true,
 				cellOps: ops,
-				onApplyStyle: (bg, color, size) => void onStructuralOp({ type: 'set-cell-style', rowIdx, colIdx, bg, color, size }),
+				onApplyStyle: isMerge
+					? (bg, color, size) => void onStructuralOp({ type: 'set-range-style', target: sTarget, bg, color, size })
+					: (bg, color, size) => void onStructuralOp({ type: 'set-cell-style', rowIdx, colIdx, bg, color, size }),
 			});
 		});
 	}
@@ -1446,14 +1454,18 @@ function renderDateCell(
 		el.addEventListener('dblclick', () => {
 			if (el.hasClass('bt-editing')) return;
 			const ops = dataCellOps(rowIdx, colIdx, model, onStructuralOp);
+			const sTarget = cellStyleTarget(rowIdx, colIdx, model.merges);
+			const isMerge = sTarget.includes(':');
 			openCellPanel({
 				anchor: el, els: [el],
-				styleTarget: colIndexToLetter(colIdx) + (rowIdx + 1),
+				styleTarget: sTarget,
 				existingStyle: cellEffectiveStyle(model, rowIdx, colIdx),
-				inheritedStyle: cellInheritedStyle(model, rowIdx, colIdx),
+				inheritedStyle: cellInheritedStyle(model, rowIdx, colIdx, sTarget),
 				showTextColor: true,
 				cellOps: ops,
-				onApplyStyle: (bg, color, size) => void onStructuralOp({ type: 'set-cell-style', rowIdx, colIdx, bg, color, size }),
+				onApplyStyle: isMerge
+					? (bg, color, size) => void onStructuralOp({ type: 'set-range-style', target: sTarget, bg, color, size })
+					: (bg, color, size) => void onStructuralOp({ type: 'set-cell-style', rowIdx, colIdx, bg, color, size }),
 			});
 		});
 	}
@@ -1500,24 +1512,37 @@ function cellEffectiveStyle(
 
 /**
  * Style that a cell inherits from non-exact rules (rows, columns, ranges).
- * Excludes any rule whose target matches this cell exactly (e.g. "B2").
- * Used as the preview fallback when a panel checkbox is unchecked: the result
- * after clearing the cell-specific override is this inherited value, not the
- * theme default — so preview stays consistent with what Apply actually produces.
+ * Excludes the rule whose target equals `exactTarget` (defaults to the single-
+ * cell coordinate, but callers can pass a merge-range target like "C3:C4").
+ * Used as the preview fallback when a panel checkbox is unchecked.
  */
 function cellInheritedStyle(
 	model: TableModel, rowIdx: number, colIdx: number,
+	exactTarget?: string,
 ): { bg?: string; color?: string; size?: number } {
-	const exactTarget = `${colIndexToLetter(colIdx)}${rowIdx + 1}`;
+	const target = exactTarget ?? `${colIndexToLetter(colIdx)}${rowIdx + 1}`;
 	const r: { bg?: string; color?: string; size?: number } = {};
 	for (const rule of model.styles) {
-		if (rule.target === exactTarget) continue;
+		if (rule.target === target) continue;
 		if (!matchTarget(rowIdx, colIdx, rule.target)) continue;
 		if (rule.bg)    r.bg    = rule.bg;
 		if (rule.color) r.color = rule.color;
 		if (rule.size)  r.size  = rule.size;
 	}
 	return r;
+}
+
+/**
+ * Returns the style target for a cell: if the cell is a merge origin, returns
+ * the full range string (e.g. "C3:C4"); otherwise the single-cell coordinate.
+ * This ensures set-range-style / set-cell-style find the right existing rule.
+ */
+function cellStyleTarget(rowIdx: number, colIdx: number, merges: MergeRange[]): string {
+	const merge = getMergeOrigin(rowIdx, colIdx, merges);
+	if (merge) {
+		return `${colIndexToLetter(merge.startCol)}${merge.startRow + 1}:${colIndexToLetter(merge.endCol)}${merge.endRow + 1}`;
+	}
+	return `${colIndexToLetter(colIdx)}${rowIdx + 1}`;
 }
 
 /** Standard cell-op buttons for a data cell (row/col insert/delete/hide + optional unmerge).
