@@ -16,6 +16,8 @@ export type StructuralOp =
 	| { type: 'move-col';        fromIdx: number; toIdx: number }
 	| { type: 'set-cell-style';  rowIdx: number;  colIdx: number; bg: string | null; color: string | null; size: number | null; bold: boolean | null; italic: boolean | null }
 	| { type: 'set-range-style'; target: string;                 bg: string | null; color: string | null; size: number | null; bold: boolean | null; italic: boolean | null }
+	/** Split a range-style rule to isolate one cell, preserving the style on all other cells. */
+	| { type: 'split-range-style'; rangeTarget: string; excludeRow: number; excludeCol: number }
 	| { type: 'set-title';       title:  string | undefined }
 	| { type: 'set-footer';      footer: string | string[] | undefined }
 	| { type: 'set-col-width';   colIdx: number; width: number }
@@ -193,6 +195,69 @@ export function applyStructuralOp(model: TableModel, op: StructuralOp): void {
 		case 'toggle-lock':
 			model.locked = !model.locked || undefined;
 			break;
+		case 'split-range-style': {
+			// Remove the range rule and redistribute its style to sub-ranges that
+			// exclude the specified cell.  Same-column ranges are merged back into
+			// contiguous row runs; rectangle ranges are split row-by-row.
+			const { rangeTarget, excludeRow, excludeCol } = op;
+			const ruleIdx = model.styles.findIndex(s => s.target === rangeTarget);
+			if (ruleIdx < 0) break;
+			const [rule] = model.styles.splice(ruleIdx, 1);
+			if (!rule) break;
+
+			const m = /^([A-Z]+)(\d+):([A-Z]+)(\d+)$/.exec(rangeTarget);
+			if (!m) break; // wildcard/other format — just remove
+
+			const startCol = colLetterToIndex(m[1] ?? 'A');
+			const startRow = parseInt(m[2] ?? '1') - 1;
+			const endCol   = colLetterToIndex(m[3] ?? 'A');
+			const endRow   = parseInt(m[4] ?? '1') - 1;
+
+			const pushRule = (t: string) => model.styles.push({ ...rule, target: t });
+
+			if (startCol === endCol) {
+				// Single-column range — merge contiguous row segments
+				let segStart: number | null = null;
+				const flush = (segEnd: number) => {
+					if (segStart === null) return;
+					const c = colIndexToLetter(startCol);
+					pushRule(segStart === segEnd ? `${c}${segStart + 1}` : `${c}${segStart + 1}:${c}${segEnd + 1}`);
+					segStart = null;
+				};
+				for (let r = startRow; r <= endRow; r++) {
+					if (r === excludeRow) flush(r - 1);
+					else if (segStart === null) segStart = r;
+				}
+				flush(endRow);
+			} else {
+				// Rectangle or single-row range — row by row
+				for (let r = startRow; r <= endRow; r++) {
+					if (r !== excludeRow) {
+						const t = startCol === endCol
+							? `${colIndexToLetter(startCol)}${r + 1}`
+							: `${colIndexToLetter(startCol)}${r + 1}:${colIndexToLetter(endCol)}${r + 1}`;
+						pushRule(t);
+					} else {
+						// Split this row around the excluded column
+						let cSeg: number | null = null;
+						const flushCol = (cEnd: number) => {
+							if (cSeg === null) return;
+							const t2 = cSeg === cEnd
+								? `${colIndexToLetter(cSeg)}${r + 1}`
+								: `${colIndexToLetter(cSeg)}${r + 1}:${colIndexToLetter(cEnd)}${r + 1}`;
+							pushRule(t2);
+							cSeg = null;
+						};
+						for (let c = startCol; c <= endCol; c++) {
+							if (c === excludeCol) flushCol(c - 1);
+							else if (cSeg === null) cSeg = c;
+						}
+						flushCol(endCol);
+					}
+				}
+			}
+			break;
+		}
 		case 'move-col': {
 			const { fromIdx, toIdx } = op;
 			if (fromIdx === toIdx) break;
