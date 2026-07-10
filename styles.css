@@ -7,6 +7,20 @@
 	--bt-sel-grip:  10px; /* drag-grip zone                                       */
 	--bt-sel-label: 22px; /* label-cell zone = total - grip                       */
 	--bt-sel-cell:  18px; /* sel-cell height (col selector) / width (row selector)*/
+	/* root stays plain block — no flex/grid (flex/grid collapses scroll-container
+	 * height to 0, breaking getBoundingClientRect-based overlay positioning).
+	 *
+	 * Layout defaults — set here so all themes inherit a consistent baseline.
+	 * Themes override by setting the same variable with higher specificity.
+	 *   --bt-wrapper-width:      table's content width (centered by default)
+	 *   --bt-wrapper-margin:     auto → horizontal centering
+	 *   --bt-title-mb-pull:      0px  → no overlap between title and table
+	 *   --bt-cell-border:        none → all-sides cell border shorthand
+	 *   --bt-cell-border-top/right/bottom/left  per-side overrides, fall back to --bt-cell-border */
+	--bt-wrapper-width:  max-content;
+	--bt-wrapper-margin: auto;
+	--bt-title-mb-pull:  0px;
+	--bt-cell-border:    none;
 }
 /* All overlay strips (col/row selectors + edge-add buttons) use position:absolute
  * within root. Coordinates are set from getBoundingClientRect() deltas so they
@@ -16,11 +30,9 @@
  * creates space for the col-selector strip without permanently shifting the table. */
 .bt-render-root.bt-has-strips {
 	padding-top: var(--bt-sel-pad, 0px);
-}
-/* --bt-title-mb-adj is set by JS to 9px on show (cancelling the -9px pull) so the
- * col-selector strip does not overlap the title text during hover. */
-.bt-table-title {
-	margin: 0 0 calc(-9px + var(--bt-title-mb-adj, 0px));
+	/* --bt-add-pad mirrors --bt-sel-pad: JS sets it to 24px on hover (making room
+	 * for the add-row strip) and back to 0px on hide (footer stays tight). */
+	padding-bottom: var(--bt-add-pad, 0px);
 }
 .bt-render-root.bt-has-strips .bt-col-selector {
 	position: absolute;
@@ -43,17 +55,44 @@
 
 .bt-table-wrapper {
 	overflow-x: auto;
-	margin: 0;
+	/* Default: shrink to table's natural content width and center.
+	 * max-width:100% ensures wide tables stop at the container edge and scroll.
+	 * Themes override via --bt-wrapper-width / --bt-wrapper-margin variables. */
+	width: var(--bt-wrapper-width, max-content);
+	max-width: 100%;
+	margin-inline: var(--bt-wrapper-margin, auto);
+	margin-block: 0;
+}
+/* Suppress Obsidian-theme margins and cell borders that bleed into rich-table.
+ * Themes control lines via CSS variables (§15: themes only set variables, base sets properties):
+ *   --bt-cell-border          shorthand for all four sides  (default: none)
+ *   --bt-cell-border-top      override top side only        (fallback: --bt-cell-border)
+ *   --bt-cell-border-right    override right side only      (fallback: --bt-cell-border)
+ *   --bt-cell-border-bottom   override bottom side only     (fallback: --bt-cell-border)
+ *   --bt-cell-border-left     override left side only       (fallback: --bt-cell-border)
+ * Accepts full border shorthand: e.g. "1px solid var(--text-muted)" / "2px dashed red" / "none". */
+.bt-render-root .bt-table {
+	margin: 0 !important;
+}
+.bt-render-root .bt-table .bt-th,
+.bt-render-root .bt-table .bt-td {
+	border-top:    var(--bt-cell-border-top,    var(--bt-cell-border, none)) !important;
+	border-right:  var(--bt-cell-border-right,  var(--bt-cell-border, none)) !important;
+	border-bottom: var(--bt-cell-border-bottom, var(--bt-cell-border, none)) !important;
+	border-left:   var(--bt-cell-border-left,   var(--bt-cell-border, none)) !important;
 }
 
 
 /* ── Table title ─────────────────────────────────────────────────────────── */
+/* --bt-title-mb-pull: 主题通过此变量表达"是否需要 -9px 拉近"的意图（默认 -9px）。
+ * renderer.ts 负责将 root 上的该变量桥接到 titleEl（兄弟节点无法直接继承）。
+ * --bt-title-mb-adj: JS 在 hover 时设为 9px，取消拉近，防止 col-selector 压标题。 */
 .bt-table-title {
 	text-align: center;
 	font-size: var(--h4-size, 1.1em);
 	font-weight: var(--font-semibold);
 	color: var(--text-normal);
-	margin: 0 0 -9px;
+	margin: 0 0 calc(var(--bt-title-mb-pull, -9px) + var(--bt-title-mb-adj, 0px));
 	line-height: 1.4;
 }
 
@@ -140,11 +179,23 @@
 	background: var(--interactive-accent-hover);
 }
 
-/* ── Theme picker button ─────────────────────────────────────────────────── */
-.bt-theme-btn {
+/* ── Control column: autofit · lock · theme ─────────────────────────────── */
+/* Vertical flex column to the left of the row-drag strip.
+ * Hidden by default, revealed on root hover; stays visible when table is locked. */
+.bt-ctrl-col {
 	position: absolute;
-	top:  var(--tb-top,  calc(-1 * var(--bt-sel-label)));
-	left: var(--tb-left, calc(var(--bt-lock-table-w, 100%) + 22px));
+	top:  var(--cc-top,  2px);
+	left: var(--cc-left, -54px);
+	display: flex;
+	flex-direction: column;
+	gap: 2px;
+	opacity: 0;
+	transition: opacity 0.08s;
+	z-index: 11;
+}
+.bt-render-root:hover .bt-ctrl-col { opacity: 1; }
+.bt-ctrl-col:has(.is-locked)       { opacity: 1; }   /* stay visible when locked */
+.bt-ctrl-btn {
 	width: var(--bt-sel-cell);
 	height: var(--bt-sel-cell);
 	display: flex;
@@ -152,75 +203,12 @@
 	justify-content: center;
 	cursor: pointer;
 	border-radius: var(--radius-s);
-	opacity: 0;
-	transition: opacity 0.08s, background 0.08s;
 	color: var(--text-faint);
-	z-index: 11;
+	transition: background 0.08s, color 0.08s;
 }
-.bt-theme-btn svg { width: 13px; height: 13px; }
-.bt-theme-btn.bt-btn-visible { opacity: 1; }
-.bt-theme-btn:hover { background: var(--background-modifier-hover); color: var(--text-normal); }
-
-/* ── Lock button ─────────────────────────────────────────────────────────── */
-/* Sits at the corner between the col selector and the add-col button.
- * Unlocked: faint, reveals on root hover. Locked: always visible with accent colour. */
-.bt-lock-btn {
-	position: absolute;
-	top:  var(--lk-top,  calc(-1 * var(--bt-sel-label)));
-	/* fallback uses --bt-lock-table-w (set from totalWidth) so the button is
-	 * roughly correct before the first getBoundingClientRect call fires.
-	 * +2px left-aligns with the add-col strip (same as in positionLockBtn). */
-	left: var(--lk-left, calc(var(--bt-lock-table-w, 100%) + 2px));
-	width: var(--bt-sel-cell);   /* 18px — same as auto-fit button */
-	height: var(--bt-sel-cell);
-	display: flex;
-	align-items: center;
-	justify-content: center;
-	cursor: pointer;
-	border-radius: var(--radius-s);
-	opacity: 0;
-	transition: opacity 0.08s, background 0.08s;
-	color: var(--text-faint);
-	z-index: 11;
-}
-.bt-lock-btn svg { width: 13px; height: 13px; }
-
-/* ── Auto-fit-all button (top-left corner, symmetric with lock button) ───── */
-.bt-autofit-btn {
-	position: absolute;
-	top:  var(--afb-top,  calc(-1 * var(--bt-sel-label)));
-	left: var(--afb-left, -18px); /* -18 = -SEL_CELL; see selectorLayout.ts */
-	width: var(--bt-sel-cell);   /* 18px keeps button inside row-selector label zone */
-	height: var(--bt-sel-cell);
-	display: flex;
-	align-items: center;
-	justify-content: center;
-	cursor: pointer;
-	border-radius: var(--radius-s);
-	opacity: 0;
-	transition: opacity 0.08s;
-	color: var(--text-faint);
-	z-index: 11;
-}
-.bt-autofit-btn svg { width: 13px; height: 13px; }
-.bt-render-root:hover .bt-autofit-btn {
-	opacity: 1;
-}
-.bt-autofit-btn:hover {
-	background: var(--background-modifier-hover);
-	color: var(--text-normal);
-}
-.bt-render-root:hover .bt-lock-btn,
-.bt-lock-btn.is-locked {
-	opacity: 1;
-}
-.bt-lock-btn.is-locked {
-	color: var(--text-warning, var(--color-orange));
-}
-.bt-lock-btn:hover {
-	background: var(--background-modifier-hover);
-	color: var(--text-normal);
-}
+.bt-ctrl-btn svg { width: 13px; height: 13px; }
+.bt-ctrl-btn:hover { background: var(--background-modifier-hover); color: var(--text-normal); }
+.bt-ctrl-btn.is-locked { color: var(--text-warning, var(--color-orange)); }
 
 /* ── Row / column selector strips (Excel-style whole-row/col selection) ─── */
 .bt-col-selector,
@@ -475,9 +463,7 @@
 
 .bt-table {
 	border-collapse: collapse;
-	table-layout: fixed;
-	/* width is pinned inline (JS) to the exact sum of column widths so
-	 * table-layout:fixed never distributes leftover width across columns. */
+	table-layout: auto; /* JS switches to fixed + sets inline width when any column has an explicit width */
 	font-size: var(--font-ui-medium);
 }
 
@@ -729,8 +715,7 @@
 .bt-table .bt-th:hover .bt-filter-btn { opacity: 1; }
 .bt-table .bt-th .bt-filter-btn.bt-filter-active {
 	opacity: 1;
-	color: white;
-	mix-blend-mode: difference;
+	color: var(--interactive-accent);
 }
 
 /* ── Filter status bar ────────────────────────────────────────────────────── */
@@ -1303,544 +1288,198 @@
 
 
 /* ── Built-in themes (auto-generated — do not edit below) ──── */
+/* @theme-label-en: Academic 📐 */
+/* @theme-label-zh: 学术 📐 */
 /*
  * Academic (booktabs) theme — inspired by LaTeX's booktabs package.
  * Three horizontal rules only: toprule / midrule / bottomrule.
  * No vertical lines, no background colors.
+ * §15 compliant: only CSS variable assignments and non-layout visual properties.
  */
 
-/* Remove all cell borders */
+/* Suppress cell backgrounds; --bt-cell-border defaults to none so no grid lines. */
 .bt-theme-academic .bt-table .bt-th,
 .bt-theme-academic .bt-table .bt-td {
-    border: none !important;
     background: none !important;
 }
 
-/* Toprule — thick line above the header */
+/* Toprule + midrule: thick line above header, medium line below header.
+ * box-shadow used for per-row control (--bt-cell-border-* variables apply to all
+ * cells uniformly; row-specific rules still require box-shadow). */
 .bt-theme-academic .bt-table thead tr:first-child .bt-th {
-    border-top: 1.5px solid var(--text-muted) !important;
+    box-shadow: inset 0 1.5px 0 var(--text-muted), inset 0 -0.8px 0 var(--text-muted);
 }
 
-/* Midrule — medium line below the header */
-.bt-theme-academic .bt-table .bt-th {
-    border-bottom: 0.8px solid var(--text-muted) !important;
+/* Midrule on continuation header rows. */
+.bt-theme-academic .bt-table thead tr:not(:first-child) .bt-th {
+    box-shadow: inset 0 -0.8px 0 var(--text-muted);
 }
 
-/* Bottomrule — thick line after the last data row */
+/* Bottomrule — thick line after the last data row. */
 .bt-theme-academic .bt-table tbody tr:last-child .bt-td {
-    border-bottom: 1.5px solid var(--text-muted) !important;
+    box-shadow: inset 0 -1.5px 0 var(--text-muted);
 }
 
-/* Remove outer table border (collapse already handles it) */
-.bt-theme-academic .bt-table {
-    border: none;
-}
-
+/* @theme-label-en: Plain 🙂 */
+/* @theme-label-zh: 朴素 🙂 */
 /*
- * Fancy theme — colorful gradients, smooth hover animations, glowing effects.
+ * Plain theme — CSS showmanship within §15.
+ *
+ * Flash comet: at any moment only ONE bright shadow exists (the head).
+ *   CSS linear interpolation between keyframes moves it along each side.
+ *   High contrast (bright head vs near-zero other sides) makes it look
+ *   like a single point running around the border.
+ *
+ * Header: background-attachment:fixed puts all <th> cells in viewport
+ *   coordinate space — they automatically show different slices of the
+ *   same gradient → appears as one seamless band across the whole row.
+ *
+ * Cursor glow: --bt-mx/my set by base renderer; --bt-tbl-l/t subtract
+ *   the table's root-relative origin so the gradient is table-local.
  */
 
-/* Table-level: gradient header with bottom glow */
-.bt-theme-fancy .bt-table {
-    border: none;
-    border-radius: 10px;
-    overflow: hidden;
-    box-shadow: 0 4px 20px rgba(124, 58, 237, 0.18), 0 1px 4px rgba(0,0,0,0.1);
+/* ── @property for smooth hue animation ─────────────────────────────── */
+@property --bt-p-hue {
+    syntax: '<number>';
+    inherits: true;
+    initial-value: 260;
+}
+@keyframes bt-plain-hue {
+    from { --bt-p-hue: 260; }
+    to   { --bt-p-hue: 620; }
 }
 
-/* Header: purple→blue gradient */
-.bt-theme-fancy .bt-table .bt-th {
-    background: linear-gradient(135deg, #6d28d9, #2563eb) !important;
+/* ── Flash comet: one bright head moving clockwise ──────────────────────
+ * Keyframes 0/25/50/75 place the head at top/right/bottom/left midpoints.
+ * Only one strong shadow per frame; interpolation slides it along each edge. */
+@keyframes bt-plain-flash {
+    0%   { box-shadow:
+             0px  -14px 10px 0px hsl(var(--bt-p-hue),        100%, 95%),   /* head: top */
+             0px  -14px 30px 0px hsl(var(--bt-p-hue),         90%, 75%, .4), /* bloom */
+            14px    0px  3px 0px hsl(calc(var(--bt-p-hue)+30), 80%, 65%, .1), /* tail-fade */
+             0px   14px  2px 0px transparent,
+           -14px    0px  2px 0px transparent; }
+    25%  { box-shadow:
+            14px    0px 10px 0px hsl(calc(var(--bt-p-hue)+ 90), 100%, 95%), /* head: right */
+            14px    0px 30px 0px hsl(calc(var(--bt-p-hue)+ 90),  90%, 75%, .4),
+             0px   14px  3px 0px hsl(calc(var(--bt-p-hue)+120),  80%, 65%, .1),
+             0px  -14px  2px 0px transparent,
+           -14px    0px  2px 0px transparent; }
+    50%  { box-shadow:
+             0px   14px 10px 0px hsl(calc(var(--bt-p-hue)+180), 100%, 95%), /* head: bottom */
+             0px   14px 30px 0px hsl(calc(var(--bt-p-hue)+180),  90%, 75%, .4),
+           -14px    0px  3px 0px hsl(calc(var(--bt-p-hue)+210),  80%, 65%, .1),
+             0px  -14px  2px 0px transparent,
+            14px    0px  2px 0px transparent; }
+    75%  { box-shadow:
+           -14px    0px 10px 0px hsl(calc(var(--bt-p-hue)+270), 100%, 95%), /* head: left */
+           -14px    0px 30px 0px hsl(calc(var(--bt-p-hue)+270),  90%, 75%, .4),
+             0px  -14px  3px 0px hsl(calc(var(--bt-p-hue)+300),  80%, 65%, .1),
+             0px   14px  2px 0px transparent,
+            14px    0px  2px 0px transparent; }
+    100% { box-shadow:
+             0px  -14px 10px 0px hsl(var(--bt-p-hue),        100%, 95%),
+             0px  -14px 30px 0px hsl(var(--bt-p-hue),         90%, 75%, .4),
+            14px    0px  3px 0px hsl(calc(var(--bt-p-hue)+30), 80%, 65%, .1),
+             0px   14px  2px 0px transparent,
+           -14px    0px  2px 0px transparent; }
+}
+
+/* ── Header breathing ───────────────────────────────────────────────── */
+@keyframes bt-plain-breathe {
+    0%, 100% { filter: brightness(0.80); }
+    50%      { filter: brightness(1.25); }
+}
+
+/* ═══════════════════════════════════════════════════════════════════════ */
+
+/* ── Root variables & cursor glow ────────────────────────────────────── */
+.bt-render-root.bt-theme-plain {
+    --bt-cell-border:   none;
+    --bt-title-mb-pull: 0px;
+    animation: bt-plain-hue 10s linear infinite;
+
+    /* Cursor atmosphere — visible at root edges, strip area, add-row zone */
+    background:
+        radial-gradient(circle 280px at var(--bt-mx, -9999px) var(--bt-my, -9999px),
+                        hsl(var(--bt-p-hue), 80%, 68%, 0.16), transparent 70%),
+        radial-gradient(circle  55px at var(--bt-mx, -9999px) var(--bt-my, -9999px),
+                        hsl(var(--bt-p-hue), 95%, 82%, 0.40), transparent 65%);
+}
+
+/* ── Wrapper: outline + Flash comet ─────────────────────────────────── */
+.bt-theme-plain .bt-table-wrapper {
+    border-radius: 12px;
+    outline: 1.5px solid hsl(var(--bt-p-hue, 260), 60%, 58%, 0.7);
+    animation: bt-plain-flash 2s linear infinite;
+    will-change: box-shadow;
+}
+
+/* ── Table ───────────────────────────────────────────────────────────── */
+.bt-theme-plain .bt-table {
+    clip-path: inset(0 round 11px);
+}
+
+/* ── Header: background-attachment:fixed = all cells share viewport coords
+ * Every <th> sees a different slice of the same gradient → seamless band. */
+.bt-theme-plain .bt-table .bt-th {
+    background: linear-gradient(
+        to right,
+        hsl(var(--bt-p-hue, 260), 68%, 20%),
+        hsl(calc(var(--bt-p-hue, 260) + 55), 75%, 42%),
+        hsl(calc(var(--bt-p-hue, 260) + 95), 80%, 54%),
+        hsl(calc(var(--bt-p-hue, 260) + 55), 75%, 42%),
+        hsl(var(--bt-p-hue, 260), 68%, 20%)
+    ) !important;
+    background-attachment: fixed !important;
+    animation: bt-plain-breathe 3s ease-in-out infinite !important;
     color: #fff !important;
-    border: none !important;
     font-weight: 700;
-    letter-spacing: 0.03em;
-    text-shadow: 0 1px 2px rgba(0,0,0,0.3);
+    letter-spacing: 0.04em;
+    text-shadow: 0 1px 4px rgba(0,0,0,0.55), 0 0 8px rgba(0,0,0,0.3);
+    will-change: filter;
 }
 
-/* Data cells: subtle border, transparent bg */
-.bt-theme-fancy .bt-table .bt-td {
-    border-color: rgba(124, 58, 237, 0.15) !important;
-    transition: background 0.18s ease, transform 0.12s ease;
+/* ── Data cells ─────────────────────────────────────────────────────── */
+.bt-theme-plain .bt-table .bt-td {
+    transition: background 0.18s ease;
 }
 
-/* Row hover: highlight + slight lift */
-.bt-theme-fancy .bt-table tbody tr:hover .bt-td {
-    background: color-mix(in srgb, #7c3aed 8%, var(--background-primary)) !important;
+/* Row hover with cursor-local glow.
+ * --bt-tbl-l/t (from positionEdgeStrips) converts cursor to table-local coords. */
+.bt-theme-plain .bt-table tbody tr:hover .bt-td {
+    background:
+        radial-gradient(
+            circle 240px at
+            calc(var(--bt-mx, -9999px) - var(--bt-tbl-l, 0px))
+            calc(var(--bt-my, -9999px) - var(--bt-tbl-t, 0px)),
+            hsl(var(--bt-p-hue), 75%, 65%, 0.18) 0%, transparent 60%
+        ),
+        color-mix(in srgb, hsl(var(--bt-p-hue), 60%, 58%) 9%,
+                  var(--background-primary)) !important;
 }
 
-/* Alternating rows: very subtle tint */
-.bt-theme-fancy .bt-table tbody tr:nth-child(even) .bt-td {
-    background: color-mix(in srgb, #2563eb 4%, transparent);
+.bt-theme-plain .bt-table tbody tr:nth-child(even) .bt-td {
+    background: color-mix(in srgb, hsl(var(--bt-p-hue, 260), 50%, 60%) 5%, transparent);
 }
 
-/* Choice pills: glowing border on hover */
-.bt-theme-fancy .bt-table .bt-choice {
-    transition: box-shadow 0.18s ease;
-}
-.bt-theme-fancy .bt-table .bt-choice:hover {
-    box-shadow: 0 0 8px 1px var(--interactive-accent);
-}
-
-/* Selection highlight: neon accent */
-.bt-theme-fancy .bt-table .bt-td.bt-selected,
-.bt-theme-fancy .bt-table .bt-th.bt-selected {
-    outline-color: #a855f7 !important;
-    background: color-mix(in srgb, #a855f7 20%, transparent) !important;
+/* ── Selection ──────────────────────────────────────────────────────── */
+.bt-theme-plain .bt-table .bt-td.bt-selected,
+.bt-theme-plain .bt-table .bt-th.bt-selected {
+    outline-color: hsl(var(--bt-p-hue), 88%, 68%) !important;
+    background: color-mix(in srgb, hsl(var(--bt-p-hue), 85%, 65%) 22%,
+                          transparent) !important;
+    box-shadow: inset 0 0 12px hsl(var(--bt-p-hue), 70%, 65%, 0.22);
 }
 
-/* Footer & title: accent color */
-.bt-theme-fancy ~ .bt-table-footer {
-    color: #7c3aed;
+/* ── Choice pills ────────────────────────────────────────────────────── */
+.bt-theme-plain .bt-table .bt-choice { transition: box-shadow 0.2s ease; }
+.bt-theme-plain .bt-table .bt-choice:hover {
+    box-shadow: 0 0 10px 2px hsl(var(--bt-p-hue), 72%, 65%, 0.60);
+}
+
+/* ── Footer ─────────────────────────────────────────────────────────── */
+.bt-theme-plain ~ .bt-table-footer {
+    color: hsl(var(--bt-p-hue, 260), 48%, 52%);
     font-weight: 600;
-}
-
-/*
- * Minimal theme — no vertical lines, only horizontal separators.
- * Clean look with slightly more padding.
- */
-
-/* Remove vertical borders */
-.bt-theme-minimal .bt-table .bt-th,
-.bt-theme-minimal .bt-table .bt-td {
-    border-left: none !important;
-    border-right: none !important;
-    background: none !important;
-}
-
-/* Lighten horizontal borders */
-.bt-theme-minimal .bt-table .bt-th,
-.bt-theme-minimal .bt-table .bt-td {
-    border-top: none !important;
-    border-bottom: 1px solid var(--background-modifier-border) !important;
-}
-
-/* Remove top border on first row (table has its own top border already) */
-.bt-theme-minimal .bt-table thead tr:first-child .bt-th {
-    border-top: none !important;
-}
-
-/* Slightly bolder header separator */
-.bt-theme-minimal .bt-table .bt-th {
-    border-bottom: 1.2px solid var(--text-muted) !important;
-}
-
-.bt-theme-minimal .bt-table {
-    border: none;
-}
-
-/*
- * Striped theme — alternating row background for easy reading.
- */
-
-.bt-theme-striped .bt-table tbody tr:nth-child(even) .bt-td {
-    background: color-mix(in srgb, var(--background-secondary) 60%, transparent);
-}
-
-
-/* ── Built-in themes (auto-generated — do not edit below) ──── */
-/*
- * Academic (booktabs) theme — inspired by LaTeX's booktabs package.
- * Three horizontal rules only: toprule / midrule / bottomrule.
- * No vertical lines, no background colors.
- */
-
-/* Remove all cell borders */
-.bt-theme-academic .bt-table .bt-th,
-.bt-theme-academic .bt-table .bt-td {
-    border: none !important;
-    background: none !important;
-}
-
-/* Toprule — thick line above the header */
-.bt-theme-academic .bt-table thead tr:first-child .bt-th {
-    border-top: 1.5px solid var(--text-muted) !important;
-}
-
-/* Midrule — medium line below the header */
-.bt-theme-academic .bt-table .bt-th {
-    border-bottom: 0.8px solid var(--text-muted) !important;
-}
-
-/* Bottomrule — thick line after the last data row */
-.bt-theme-academic .bt-table tbody tr:last-child .bt-td {
-    border-bottom: 1.5px solid var(--text-muted) !important;
-}
-
-/* Remove outer table border (collapse already handles it) */
-.bt-theme-academic .bt-table {
-    border: none;
-}
-
-/*
- * Fancy theme — colorful gradients, smooth hover animations, glowing effects.
- */
-
-/* Table-level: gradient header with bottom glow */
-.bt-theme-fancy .bt-table {
-    border: none;
-    border-radius: 10px;
-    overflow: hidden;
-    box-shadow: 0 4px 20px rgba(124, 58, 237, 0.18), 0 1px 4px rgba(0,0,0,0.1);
-}
-
-/* Header: purple→blue gradient */
-.bt-theme-fancy .bt-table .bt-th {
-    background: linear-gradient(135deg, #6d28d9, #2563eb) !important;
-    color: #fff !important;
-    border: none !important;
-    font-weight: 700;
-    letter-spacing: 0.03em;
-    text-shadow: 0 1px 2px rgba(0,0,0,0.3);
-}
-
-/* Data cells: subtle border, transparent bg */
-.bt-theme-fancy .bt-table .bt-td {
-    border-color: rgba(124, 58, 237, 0.15) !important;
-    transition: background 0.18s ease, transform 0.12s ease;
-}
-
-/* Row hover: highlight + slight lift */
-.bt-theme-fancy .bt-table tbody tr:hover .bt-td {
-    background: color-mix(in srgb, #7c3aed 8%, var(--background-primary)) !important;
-}
-
-/* Alternating rows: very subtle tint */
-.bt-theme-fancy .bt-table tbody tr:nth-child(even) .bt-td {
-    background: color-mix(in srgb, #2563eb 4%, transparent);
-}
-
-/* Choice pills: glowing border on hover */
-.bt-theme-fancy .bt-table .bt-choice {
-    transition: box-shadow 0.18s ease;
-}
-.bt-theme-fancy .bt-table .bt-choice:hover {
-    box-shadow: 0 0 8px 1px var(--interactive-accent);
-}
-
-/* Selection highlight: neon accent */
-.bt-theme-fancy .bt-table .bt-td.bt-selected,
-.bt-theme-fancy .bt-table .bt-th.bt-selected {
-    outline-color: #a855f7 !important;
-    background: color-mix(in srgb, #a855f7 20%, transparent) !important;
-}
-
-/* Footer & title: accent color */
-.bt-theme-fancy ~ .bt-table-footer {
-    color: #7c3aed;
-    font-weight: 600;
-}
-
-/*
- * Minimal theme — no vertical lines, only horizontal separators.
- * Clean look with slightly more padding.
- */
-
-/* Remove vertical borders */
-.bt-theme-minimal .bt-table .bt-th,
-.bt-theme-minimal .bt-table .bt-td {
-    border-left: none !important;
-    border-right: none !important;
-    background: none !important;
-}
-
-/* Lighten horizontal borders */
-.bt-theme-minimal .bt-table .bt-th,
-.bt-theme-minimal .bt-table .bt-td {
-    border-top: none !important;
-    border-bottom: 1px solid var(--background-modifier-border) !important;
-}
-
-/* Remove top border on first row (table has its own top border already) */
-.bt-theme-minimal .bt-table thead tr:first-child .bt-th {
-    border-top: none !important;
-}
-
-/* Slightly bolder header separator */
-.bt-theme-minimal .bt-table .bt-th {
-    border-bottom: 1.2px solid var(--text-muted) !important;
-}
-
-.bt-theme-minimal .bt-table {
-    border: none;
-}
-
-/*
- * Striped theme — alternating row background for easy reading.
- */
-
-.bt-theme-striped .bt-table tbody tr:nth-child(even) .bt-td {
-    background: color-mix(in srgb, var(--background-secondary) 60%, transparent);
-}
-
-
-/* ── Built-in themes (auto-generated — do not edit below) ──── */
-/*
- * Academic (booktabs) theme — inspired by LaTeX's booktabs package.
- * Three horizontal rules only: toprule / midrule / bottomrule.
- * No vertical lines, no background colors.
- */
-
-/* Remove all cell borders */
-.bt-theme-academic .bt-table .bt-th,
-.bt-theme-academic .bt-table .bt-td {
-    border: none !important;
-    background: none !important;
-}
-
-/* Toprule — thick line above the header */
-.bt-theme-academic .bt-table thead tr:first-child .bt-th {
-    border-top: 1.5px solid var(--text-muted) !important;
-}
-
-/* Midrule — medium line below the header */
-.bt-theme-academic .bt-table .bt-th {
-    border-bottom: 0.8px solid var(--text-muted) !important;
-}
-
-/* Bottomrule — thick line after the last data row */
-.bt-theme-academic .bt-table tbody tr:last-child .bt-td {
-    border-bottom: 1.5px solid var(--text-muted) !important;
-}
-
-/* Remove outer table border (collapse already handles it) */
-.bt-theme-academic .bt-table {
-    border: none;
-}
-
-/*
- * Fancy theme — colorful gradients, smooth hover animations, glowing effects.
- */
-
-/* Table-level: gradient header with bottom glow */
-.bt-theme-fancy .bt-table {
-    border: none;
-    border-radius: 10px;
-    overflow: hidden;
-    box-shadow: 0 4px 20px rgba(124, 58, 237, 0.18), 0 1px 4px rgba(0,0,0,0.1);
-}
-
-/* Header: purple→blue gradient */
-.bt-theme-fancy .bt-table .bt-th {
-    background: linear-gradient(135deg, #6d28d9, #2563eb) !important;
-    color: #fff !important;
-    border: none !important;
-    font-weight: 700;
-    letter-spacing: 0.03em;
-    text-shadow: 0 1px 2px rgba(0,0,0,0.3);
-}
-
-/* Data cells: subtle border, transparent bg */
-.bt-theme-fancy .bt-table .bt-td {
-    border-color: rgba(124, 58, 237, 0.15) !important;
-    transition: background 0.18s ease, transform 0.12s ease;
-}
-
-/* Row hover: highlight + slight lift */
-.bt-theme-fancy .bt-table tbody tr:hover .bt-td {
-    background: color-mix(in srgb, #7c3aed 8%, var(--background-primary)) !important;
-}
-
-/* Alternating rows: very subtle tint */
-.bt-theme-fancy .bt-table tbody tr:nth-child(even) .bt-td {
-    background: color-mix(in srgb, #2563eb 4%, transparent);
-}
-
-/* Choice pills: glowing border on hover */
-.bt-theme-fancy .bt-table .bt-choice {
-    transition: box-shadow 0.18s ease;
-}
-.bt-theme-fancy .bt-table .bt-choice:hover {
-    box-shadow: 0 0 8px 1px var(--interactive-accent);
-}
-
-/* Selection highlight: neon accent */
-.bt-theme-fancy .bt-table .bt-td.bt-selected,
-.bt-theme-fancy .bt-table .bt-th.bt-selected {
-    outline-color: #a855f7 !important;
-    background: color-mix(in srgb, #a855f7 20%, transparent) !important;
-}
-
-/* Footer & title: accent color */
-.bt-theme-fancy ~ .bt-table-footer {
-    color: #7c3aed;
-    font-weight: 600;
-}
-
-/*
- * Minimal theme — no vertical lines, only horizontal separators.
- * Clean look with slightly more padding.
- */
-
-/* Remove vertical borders */
-.bt-theme-minimal .bt-table .bt-th,
-.bt-theme-minimal .bt-table .bt-td {
-    border-left: none !important;
-    border-right: none !important;
-    background: none !important;
-}
-
-/* Lighten horizontal borders */
-.bt-theme-minimal .bt-table .bt-th,
-.bt-theme-minimal .bt-table .bt-td {
-    border-top: none !important;
-    border-bottom: 1px solid var(--background-modifier-border) !important;
-}
-
-/* Remove top border on first row (table has its own top border already) */
-.bt-theme-minimal .bt-table thead tr:first-child .bt-th {
-    border-top: none !important;
-}
-
-/* Slightly bolder header separator */
-.bt-theme-minimal .bt-table .bt-th {
-    border-bottom: 1.2px solid var(--text-muted) !important;
-}
-
-.bt-theme-minimal .bt-table {
-    border: none;
-}
-
-/*
- * Striped theme — alternating row background for easy reading.
- */
-
-.bt-theme-striped .bt-table tbody tr:nth-child(even) .bt-td {
-    background: color-mix(in srgb, var(--background-secondary) 60%, transparent);
-}
-
-
-/* ── Built-in themes (auto-generated — do not edit below) ──── */
-/*
- * Academic (booktabs) theme — inspired by LaTeX's booktabs package.
- * Three horizontal rules only: toprule / midrule / bottomrule.
- * No vertical lines, no background colors.
- */
-
-/* Remove all cell borders */
-.bt-theme-academic .bt-table .bt-th,
-.bt-theme-academic .bt-table .bt-td {
-    border: none !important;
-    background: none !important;
-}
-
-/* Toprule — thick line above the header */
-.bt-theme-academic .bt-table thead tr:first-child .bt-th {
-    border-top: 1.5px solid var(--text-muted) !important;
-}
-
-/* Midrule — medium line below the header */
-.bt-theme-academic .bt-table .bt-th {
-    border-bottom: 0.8px solid var(--text-muted) !important;
-}
-
-/* Bottomrule — thick line after the last data row */
-.bt-theme-academic .bt-table tbody tr:last-child .bt-td {
-    border-bottom: 1.5px solid var(--text-muted) !important;
-}
-
-/* Remove outer table border (collapse already handles it) */
-.bt-theme-academic .bt-table {
-    border: none;
-}
-
-/*
- * Fancy theme — colorful gradients, smooth hover animations, glowing effects.
- */
-
-/* Table-level: gradient header with bottom glow */
-.bt-theme-fancy .bt-table {
-    border: none;
-    border-radius: 10px;
-    overflow: hidden;
-    box-shadow: 0 4px 20px rgba(124, 58, 237, 0.18), 0 1px 4px rgba(0,0,0,0.1);
-}
-
-/* Header: purple→blue gradient */
-.bt-theme-fancy .bt-table .bt-th {
-    background: linear-gradient(135deg, #6d28d9, #2563eb) !important;
-    color: #fff !important;
-    border: none !important;
-    font-weight: 700;
-    letter-spacing: 0.03em;
-    text-shadow: 0 1px 2px rgba(0,0,0,0.3);
-}
-
-/* Data cells: subtle border, transparent bg */
-.bt-theme-fancy .bt-table .bt-td {
-    border-color: rgba(124, 58, 237, 0.15) !important;
-    transition: background 0.18s ease, transform 0.12s ease;
-}
-
-/* Row hover: highlight + slight lift */
-.bt-theme-fancy .bt-table tbody tr:hover .bt-td {
-    background: color-mix(in srgb, #7c3aed 8%, var(--background-primary)) !important;
-}
-
-/* Alternating rows: very subtle tint */
-.bt-theme-fancy .bt-table tbody tr:nth-child(even) .bt-td {
-    background: color-mix(in srgb, #2563eb 4%, transparent);
-}
-
-/* Choice pills: glowing border on hover */
-.bt-theme-fancy .bt-table .bt-choice {
-    transition: box-shadow 0.18s ease;
-}
-.bt-theme-fancy .bt-table .bt-choice:hover {
-    box-shadow: 0 0 8px 1px var(--interactive-accent);
-}
-
-/* Selection highlight: neon accent */
-.bt-theme-fancy .bt-table .bt-td.bt-selected,
-.bt-theme-fancy .bt-table .bt-th.bt-selected {
-    outline-color: #a855f7 !important;
-    background: color-mix(in srgb, #a855f7 20%, transparent) !important;
-}
-
-/* Footer & title: accent color */
-.bt-theme-fancy ~ .bt-table-footer {
-    color: #7c3aed;
-    font-weight: 600;
-}
-
-/*
- * Minimal theme — no vertical lines, only horizontal separators.
- * Clean look with slightly more padding.
- */
-
-/* Remove vertical borders */
-.bt-theme-minimal .bt-table .bt-th,
-.bt-theme-minimal .bt-table .bt-td {
-    border-left: none !important;
-    border-right: none !important;
-    background: none !important;
-}
-
-/* Lighten horizontal borders */
-.bt-theme-minimal .bt-table .bt-th,
-.bt-theme-minimal .bt-table .bt-td {
-    border-top: none !important;
-    border-bottom: 1px solid var(--background-modifier-border) !important;
-}
-
-/* Remove top border on first row (table has its own top border already) */
-.bt-theme-minimal .bt-table thead tr:first-child .bt-th {
-    border-top: none !important;
-}
-
-/* Slightly bolder header separator */
-.bt-theme-minimal .bt-table .bt-th {
-    border-bottom: 1.2px solid var(--text-muted) !important;
-}
-
-.bt-theme-minimal .bt-table {
-    border: none;
-}
-
-/*
- * Striped theme — alternating row background for easy reading.
- */
-
-.bt-theme-striped .bt-table tbody tr:nth-child(even) .bt-td {
-    background: color-mix(in srgb, var(--background-secondary) 60%, transparent);
 }

@@ -4,17 +4,13 @@ title: Rich Table Demo
 columns:
   - id: c_000000
     name: Feature
-    width: 120
   - id: c_000001
     name: Example
-    width: 310
   - id: c_000002
     name: Notes
-    width: 190
   - id: c_000003
     name: Status
     type: task-status
-    width: 90
 rows:
   - id: r_000000
     cells:
@@ -56,11 +52,21 @@ rows:
       c_000003: done
   - id: r_000006
     cells:
+      c_000000: Code block
+      c_000001: |-
+        ```c
+        printf("hello");
+        int x = 42;
+        ```
+      c_000002: Code blocks work inside cells
+      c_000003: done
+  - id: r_000007
+    cells:
       c_000000: Merge cells
       c_000001: Drag-select → double-click → Merge
       c_000002: See yellow cell above
       c_000003: done
-  - id: r_000007
+  - id: r_000008
     cells:
       c_000000: Tips
       c_000001: |-
@@ -69,18 +75,20 @@ rows:
         - Right-click column header: set type / filter / hide column
         - Hover left/top selector strip: select row/col, apply style to all
         - Drag ⠿ to reorder · dbl-click handle to auto-fit · ⊞ to fit all columns
-        - 🔒 Lock button: prevent editing · click title or footer to edit them
+        - 🔒 Lock (top-left): prevent editing · click title or footer to edit them
+        - 🎨 Theme picker (left of row strip): try `academic 📐` or `plain 🙂`
 merges:
   - anchor: r_000002.c_000002
     end: r_000003.c_000002
-  - anchor: r_000007.c_000001
-    end: r_000007.c_000003
+  - anchor: r_000008.c_000001
+    end: r_000008.c_000003
 styles:
   - target: header
     bg: "#e8f0fe"
     bold: true
   - target: c_000000
     bold: true
+    size: 15
   - target: r_000002.c_000002:r_000003.c_000002
     bg: "#fef9c3"
     italic: true
@@ -95,5 +103,6 @@ footer: "Single-click to edit · double-click for menu · drag ⠿ to reorder"
 | Image       | ![badge](…)                           |                          | done   |
 | Multiline   | Line 1 Line 2 Line 3                  | Shift+Enter in editor    | done   |
 | List items  | - Item one - Item two - Item three    | Leading - makes a list   | done   |
+| Code block  | ```c printf("hello"); ```             | Code blocks in cells     | done   |
 | Merge cells | Drag-select → Merge                   | See yellow cell above    | done   |
 | Tips        | Click · double-click · right-click    |                          |        |

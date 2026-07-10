@@ -36,11 +36,16 @@ function hasUpgradeSuppressed(source: string): boolean {
 
 export class TableBlock extends MarkdownRenderChild {
 	private model: TableModelV2 | null = null;
+	// Reference to the rendered bt-render-root element — used for instant theme updates.
+	private renderedRoot: HTMLElement | null = null;
 	// Serialised write chain — strictly ordered so concurrent writes never interleave.
 	private writeChain: Promise<void> = Promise.resolve();
 	// Batch queue: ops arriving in the same JS tick are applied together in one write.
 	private pendingOps: StructuralOpV2[] = [];
 	private writeBackScheduled = false;
+	// True during the atomic DOM swap in render() — strips must not show while
+	// containerEl is being rebuilt (stale or double-root rects are unreliable).
+	private isRendering = false;
 
 	constructor(
 		container: HTMLElement,
@@ -55,7 +60,7 @@ export class TableBlock extends MarkdownRenderChild {
 
 	onload(): void {
 		// Synchronous cache hit: keeps the container non-blank while async
-		// render completes, eliminating the flash on write-back re-renders.
+		// render completes, eliminating the blank flash on write-back re-renders.
 		const cached = renderCache.get(this.cacheKey);
 		if (cached) {
 			const clone = cached.cloneNode(true) as HTMLElement;
@@ -155,6 +160,8 @@ export class TableBlock extends MarkdownRenderChild {
 				this,
 				(isEmpty || !editAllowed || locked || isOldFormat) ? undefined : (op) => this.handleStructuralOp(op),
 				lockAvailable ? () => this.handleStructuralOp({ type: 'toggle-lock' }) : undefined,
+				(root) => { this.renderedRoot = root; },
+				() => this.isRendering,
 			);
 			if (isEmpty) {
 				const banner = createDiv({ cls: 'bt-template-banner' });
@@ -175,15 +182,52 @@ export class TableBlock extends MarkdownRenderChild {
 		// Update cache with the freshly rendered (non-interactive) snapshot
 		renderCache.set(this.cacheKey, tmp.cloneNode(true) as HTMLElement);
 
-		// Atomic swap: replace whatever is in containerEl (stale cache or nothing)
+		// Atomic swap: guard so showEdgeStrips rejects any attempt to display strips
+		// during the window between containerEl.empty() and the new root being in DOM.
+		this.isRendering = true;
 		this.containerEl.empty();
 		while (tmp.firstChild) {
 			this.containerEl.appendChild(tmp.firstChild);
+		}
+		// Force a synchronous reflow so the next getBoundingClientRect() reads the
+		// settled layout, then clear the guard.
+		void this.containerEl.getBoundingClientRect();
+		this.isRendering = false;
+
+		// Bridge --bt-title-mb-pull from root to sibling titleEl.
+		// CSS custom properties only inherit to descendants; a theme sets the variable
+		// on root to express its intent (e.g. 0px = no pull-close with visible border),
+		// and the renderer propagates it to the title after the atomic swap so that
+		// getComputedStyle() can read the live stylesheet value (detached elements
+		// don't resolve stylesheet-declared custom properties).
+		const rootEl = this.containerEl.querySelector<HTMLElement>('.bt-render-root');
+		const titleEl = this.containerEl.querySelector<HTMLElement>('.bt-table-title');
+		if (rootEl && titleEl) {
+			const pull = getComputedStyle(rootEl).getPropertyValue('--bt-title-mb-pull').trim();
+			if (pull) titleEl.style.setProperty('--bt-title-mb-pull', pull);
+			else      titleEl.style.removeProperty('--bt-title-mb-pull');
 		}
 	}
 
 	private async handleStructuralOp(op: StructuralOpV2): Promise<void> {
 		if (!this.model) return;
+
+		// Theme changes: apply the CSS class immediately so the switch is instant,
+		// without waiting for write-back → re-render (which would cause a flash).
+		// Also patch the render cache so the cache-inject path in the next onload()
+		// already shows the new theme, preventing the A→B→A→B triple flash.
+		if (op.type === 'set-theme' && this.renderedRoot) {
+			const newClass = op.theme
+				? `bt-render-root bt-theme-${op.theme}`
+				: 'bt-render-root';
+			this.renderedRoot.className = newClass;
+			const cached = renderCache.get(this.cacheKey);
+			if (cached) {
+				const cachedRoot = cached.querySelector<HTMLElement>('.bt-render-root');
+				if (cachedRoot) cachedRoot.className = newClass;
+			}
+		}
+
 		// Queue the op — it will be applied along with any other ops that
 		// arrive in the same JS tick before the single write-back fires.
 		this.pendingOps.push(op);

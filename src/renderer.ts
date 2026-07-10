@@ -1,14 +1,15 @@
 import { App, Component, MarkdownRenderer, Menu, setIcon } from 'obsidian';
 import {
-	t, typeLabel,
+	t, isZh, typeLabel,
 	hideRowsLabel, hideColsLabel, deleteRowsLabel, deleteColsLabel,
 } from './i18n';
+import { BUILTIN_THEMES } from './themes/index';
 import { WikilinkInputSuggest } from './wikilinkInputSuggest';
 import type { ColumnDefV2, TableModelV2 } from './model';
 import type { ChoiceRegistry } from './choiceRegistry';
 import type { StructuralOpV2 } from './operations';
 import { colIndexToLetter } from './utils';
-import { SEL_TOTAL, SEL_LABEL, AUTOFIT_OFFSET } from './selectorLayout';
+import { SEL_TOTAL, AUTOFIT_OFFSET } from './selectorLayout';
 import { resolveStylesV2, resolveHeaderStylesV2, parseStyleTarget, matchesHeaderCell, matchesCell, type ResolvedStyleV2 } from './styleTarget';
 import type { StyleRuleV2 } from './model';
 
@@ -49,6 +50,8 @@ export async function renderTable(
 	component: Component,
 	onOp?: OpHandler,
 	onToggleLock?: ToggleLockHandler,
+	onRootReady?: (root: HTMLElement) => void,
+	isSwapping?: () => boolean,
 ): Promise<void> {
 	if (model.columns.length === 0) return;
 	// Unified op handler — replaces separate onCellChange / onColTypeChange / onStructuralOp.
@@ -95,41 +98,52 @@ export async function renderTable(
 	// Obsidian's content pane — no viewport coordinate math needed.
 	const themeClass = model.theme ? `bt-render-root bt-theme-${model.theme}` : 'bt-render-root';
 	const root = container.createDiv({ cls: themeClass });
+	onRootReady?.(root);
+
 	const wrapper = root.createDiv({ cls: 'bt-table-wrapper' });
 	const table = wrapper.createEl('table', { cls: 'bt-table' });
 
-	// <colgroup> for precise column widths (required by table-layout:fixed).
-	// Each contiguous run of hidden columns collapses to ONE narrow <col> so the
-	// indicator cell (rendered once per group in renderRow) stays ~2 chars wide
-	// instead of absorbing the table's leftover width.
+	// <colgroup> for precise column widths (used when table-layout:fixed).
+	// If no column has an explicit width we leave widths unset and let the
+	// browser size columns via table-layout:auto (natural content width).
 	const HIDDEN_COL_WIDTH = 28;
 	const colgroup = table.createEl('colgroup');
 	const visibleCols: { colEl: HTMLElement; colIdx: number }[] = [];
+	// Determine whether to use fixed layout: any visible column has an explicit width.
+	const hasExplicitWidths = model.columns.some(
+		col => col && !col.hidden && (col.width ?? 0) > 0,
+	);
 	let totalWidth = 0;
 	for (let ci = 0; ci < model.columns.length; ci++) {
 		const col = model.columns[ci];
 		if (col?.hidden) {
-			// Skip the rest of this contiguous hidden group, emit one narrow <col>
 			while (ci < model.columns.length && model.columns[ci]?.hidden) ci++;
-			ci--; // loop will ++ again
-			colgroup.createEl('col').style.setProperty('width', `${HIDDEN_COL_WIDTH}px`);
-			totalWidth += HIDDEN_COL_WIDTH;
+			ci--;
+			if (hasExplicitWidths) {
+				colgroup.createEl('col').style.setProperty('width', `${HIDDEN_COL_WIDTH}px`);
+				totalWidth += HIDDEN_COL_WIDTH;
+			} else {
+				colgroup.createEl('col');
+			}
 			continue;
 		}
 		if (!col) continue;
 		const colEl = colgroup.createEl('col');
-		const w = Math.max(colMinWidth(col, registry), col.width ?? 120);
-		colEl.style.setProperty('width', `${w}px`);
 		colEl.dataset.col = String(ci);
-		totalWidth += w;
+		if (hasExplicitWidths) {
+			const w = Math.max(colMinWidth(col, registry), col.width ?? 120);
+			colEl.style.setProperty('width', `${w}px`);
+			totalWidth += w;
+		}
 		visibleCols.push({ colEl, colIdx: ci });
 	}
-	// Pin the table to the exact sum of column widths (inline style beats any
-	// theme `table { width: 100% }` rule). Without this, table-layout:fixed
-	// distributes leftover width across all columns — bloating hidden-col cells.
-	table.style.setProperty('width', `${totalWidth}px`);
-	// CSS fallback for lock button left position (used before first getBoundingClientRect call)
-	if (onToggleLock) root.setCssProps({ '--bt-lock-table-w': `${totalWidth}px` });
+	if (hasExplicitWidths) {
+		// Switch to fixed layout and pin table width to prevent bloating hidden-col cells.
+		// setAttribute is used because setCssProps only handles custom properties and
+		// table-layout/width are standard properties that must override the stylesheet.
+		table.setAttribute('style', `table-layout:fixed;width:${totalWidth}px`);
+		if (onToggleLock) root.setCssProps({ '--bt-lock-table-w': `${totalWidth}px` });
+	}
 
 	// ── Drag-to-select for cell merging ──────────────────────────────────────
 	// sel tracks the current drag selection; hasMoved prevents click handlers
@@ -500,19 +514,51 @@ export async function renderTable(
 		const addColBtn = root.createDiv({ cls: 'bt-edge-add-col' });
 		addColBtn.createSpan({ cls: 'bt-edge-plus', text: '+' });
 
+		// Belt-and-suspenders: strip nodes are freshly created so they should never
+		// carry bt-strip-visible or stale --strip-* inline vars, but reset them
+		// explicitly to guard against any future code path that might clone them.
+		const resetStrip = (el: HTMLElement) => {
+			el.removeClass('bt-strip-visible');
+			el.style.removeProperty('--strip-top');
+			el.style.removeProperty('--strip-left');
+			el.style.removeProperty('--strip-width');
+			el.style.removeProperty('--strip-height');
+		};
+		resetStrip(addRowBtn);
+		resetStrip(addColBtn);
+
 		addRowBtn.addEventListener('click', () =>
 			void onStructuralOp({ type: 'insert-row', afterRowId: model.rows[model.rows.length - 1]?.id ?? null }));
 		addColBtn.addEventListener('click', () =>
 			void onStructuralOp({ type: 'insert-col', afterColId: model.columns[model.columns.length - 1]?.id ?? null }));
 
-		// Edge-add strips use position:absolute within root so they track the TABLE
-		// dimensions (not the wrapper, which fills 1fr of the grid = full content width).
-		// Coordinates are root-relative: getBoundingClientRect delta, not viewport coords.
-		const positionEdgeStrips = () => {
+		// Use getBoundingClientRect delta — same reason as positionSelectors: the wrapper's
+		// overflow-x:auto can make it an offsetParent in some Chrome builds, so offsetTop/
+		// offsetLeft traversal may stop at the wrapper instead of reaching root.
+		// getBCR viewport-coordinate subtraction is always root-relative and unambiguous.
+		const positionEdgeStrips = (): boolean => {
+			// Stale-root guard: if this renderTable() closure's root has been removed from
+			// the DOM by a subsequent atomic swap, any rect we read would be from an
+			// unrelated or detached element — bail immediately.
+			if (!root.isConnected) return false;
+
 			const tr = table.getBoundingClientRect();
 			const rr = root.getBoundingClientRect();
+			if (tr.width === 0 || tr.height === 0) return false;
+			if (rr.width === 0) return false;
+			if (rr.height === 0) {
+				window.requestAnimationFrame(() => positionEdgeStrips());
+				return false;
+			}
+			// Double-content guard: root height should never exceed table height by more
+			// than the maximum padding (sel-pad=32 + add-pad=24 = 56px, so 60px is safe).
+			// rr.height >> tr.height means the DOM contains two stacked roots (cache clone
+			// injection window), producing the anomalous rr.height≈1113 observed in logs.
+			if (rr.height > tr.height + 60) return false;
+
 			const tl = tr.left - rr.left;
 			const tt = tr.top  - rr.top;
+			if (tt < -5 || tl < -5 || tt > rr.height + 5) return false;
 			const tw = tr.width;
 			const th = tr.height;
 			addRowBtn.setCssProps({
@@ -525,6 +571,16 @@ export async function renderTable(
 				'--strip-left':   `${tl + tw + 2}px`,
 				'--strip-height': `${th}px`,
 			});
+			// Expose table geometry so themes can compute table-local cursor coordinates.
+			// Themes subtract these from --bt-mx/--bt-my to get cursor position within
+			// the table's own coordinate space (e.g. for cursor-glow on row hover).
+			root.setCssProps({
+				'--bt-tbl-l': `${tl}px`,
+				'--bt-tbl-t': `${tt}px`,
+				'--bt-tbl-w': `${tw}px`,
+				'--bt-tbl-h': `${th}px`,
+			});
+			return true;
 		};
 
 		let hideTimer: number | null = null;
@@ -541,10 +597,15 @@ export async function renderTable(
 		};
 
 		showEdgeStrips = () => {
+			if (isSwapping?.()) return; // bail if atomic swap is in progress
 			cancelHide();
-			positionEdgeStrips();
-			addRowBtn.addClass('bt-strip-visible');
-			addColBtn.addClass('bt-strip-visible');
+			window.requestAnimationFrame(() => window.requestAnimationFrame(() => {
+				if (isSwapping?.()) return; // re-check after two frames
+				if (hideTimer !== null) return;
+				if (!positionEdgeStrips()) return;
+				addRowBtn.addClass('bt-strip-visible');
+				addColBtn.addClass('bt-strip-visible');
+			}));
 		};
 		hideEdgeStrips = scheduleHide;
 
@@ -557,7 +618,8 @@ export async function renderTable(
 		// adds lines via Shift+Enter) — bt-layout-changed is only fired by explicit
 		// resize ops, not by the browser's natural reflow.
 		const resizeObs = new ResizeObserver(() => {
-			if (addRowBtn.hasClass('bt-strip-visible')) positionEdgeStrips();
+			if (addRowBtn.hasClass('bt-strip-visible'))
+				window.requestAnimationFrame(positionEdgeStrips);
 		});
 		resizeObs.observe(table);
 		component?.register(() => resizeObs.disconnect());
@@ -569,7 +631,21 @@ export async function renderTable(
 	if (onStructuralOp || onToggleLock) {
 		const ctrlCol = root.createDiv({ cls: 'bt-ctrl-col' });
 
-		// Autofit button
+		// Lock button — first in column
+		if (onToggleLock) {
+			const lockBtn = ctrlCol.createDiv({
+				cls: 'bt-ctrl-btn' + (model.locked ? ' is-locked' : ''),
+				attr: {
+					'aria-label':            model.locked ? t('unlockTable') : t('lockTable'),
+					'data-tooltip-position': 'right',
+				},
+			});
+			setIcon(lockBtn, model.locked ? 'lock' : 'lock-open');
+			lockBtn.addEventListener('click', () => void onToggleLock());
+			repositionLockBtn = () => { /* handled by ctrlCol */ };
+		}
+
+		// Autofit button — second in column
 		if (onStructuralOp) {
 			const autoFitBtn = ctrlCol.createDiv({
 				cls: 'bt-ctrl-btn',
@@ -587,32 +663,17 @@ export async function renderTable(
 					void onStructuralOp({ type: 'set-row-height', rowId: row.id, height: 0 });
 				}
 			});
-			// Keep the legacy repositionAutoFitBtn reference so selector code can call it
 			repositionAutoFitBtn = () => { /* positioning handled by ctrlCol */ };
 		}
 
-		// Lock button
-		if (onToggleLock) {
-			const lockBtn = ctrlCol.createDiv({
-				cls: 'bt-ctrl-btn' + (model.locked ? ' is-locked' : ''),
-				attr: {
-					'aria-label':            model.locked ? t('unlockTable') : t('lockTable'),
-					'data-tooltip-position': 'right',
-				},
-			});
-			setIcon(lockBtn, model.locked ? 'lock' : 'lock-open');
-			lockBtn.addEventListener('click', () => void onToggleLock());
-			repositionLockBtn = () => { /* handled by ctrlCol */ };
-		}
-
-		// Theme picker button
+		// Theme picker button — third in column
 		if (onStructuralOp) {
 			const THEMES: { id: string | null; label: string }[] = [
-				{ id: null,        label: t('themeDefault')  },
-				{ id: 'academic',  label: t('themeAcademic') },
-				{ id: 'minimal',   label: t('themeMinimal')  },
-				{ id: 'striped',   label: t('themeStriped')  },
-				{ id: 'fancy',     label: t('themeFancy')    },
+				{ id: null, label: t('themeDefault') },
+				...BUILTIN_THEMES.map(th => ({
+					id: th.id,
+					label: isZh() ? th.labelZh : th.labelEn,
+				})),
 			];
 			const themeBtn = ctrlCol.createDiv({
 				cls: 'bt-ctrl-btn',
@@ -849,7 +910,8 @@ export async function renderTable(
 				if (h) h.setCssProps({ '--rx': `${cx}px` });
 			}
 			for (const [ri, h] of rowResizeHandles) {
-				const firstCell = table.querySelector<HTMLElement>(`[data-row="${ri}"]`);
+				// data-row is 1-based (header=0, data rows=1,2,3…); ri is 0-based model index.
+				const firstCell = table.querySelector<HTMLElement>(`[data-row="${ri + 1}"]`);
 				const tr = firstCell?.closest<HTMLElement>('tr');
 				if (tr) {
 					const trR = tr.getBoundingClientRect();
@@ -873,8 +935,11 @@ export async function renderTable(
 			}, 80);
 		};
 
-		// Position selectors by tracking the table's actual getBoundingClientRect
-		// relative to root — handles theme-centered tables (margin:auto) correctly.
+		// getBoundingClientRect delta is immune to the offsetParent chain: when the wrapper
+		// (overflow-x:auto) is treated as offsetParent by some Chrome/Electron versions,
+		// table.offsetLeft returns 0 (relative to wrapper) instead of the root-relative
+		// centering offset.  The viewport-coordinate subtraction always gives the correct
+		// root-relative position regardless of offsetParent.
 		const positionSelectors = () => {
 			const tr = table.getBoundingClientRect();
 			const rr = root.getBoundingClientRect();
@@ -896,11 +961,11 @@ export async function renderTable(
 		// show/hide so that positionEdgeStrips() and positionSelectors() both see
 		// the same layout (table already shifted by --bt-sel-pad).
 		prepareLayout = () => {
-			root.setCssProps({ '--bt-sel-pad': `${SEL_TOTAL}px` });
+			root.setCssProps({ '--bt-sel-pad': `${SEL_TOTAL}px`, '--bt-add-pad': '24px' });
 			titleEl?.setCssProps({ '--bt-title-mb-adj': '9px' });
 		};
 		restoreLayout = () => {
-			root.setCssProps({ '--bt-sel-pad': '0px' });
+			root.setCssProps({ '--bt-sel-pad': '0px', '--bt-add-pad': '0px' });
 			titleEl?.setCssProps({ '--bt-title-mb-adj': '0px' });
 			repositionLockBtn();
 			repositionAutoFitBtn();
@@ -1112,6 +1177,27 @@ export async function renderTable(
 			showSelectors();
 		});
 		root.addEventListener('mouseleave', () => { hideEdgeStrips(); hideSelectors(); });
+	}
+
+	// ── Cursor-position CSS variables (base layer, usable by any theme) ────────
+	// Themes can read --bt-mx/--bt-my to create cursor-reactive visual effects
+	// (e.g. cursor glow, gradient follow). Rect is cached on enter to avoid
+	// forced-layout on every mousemove.
+	{
+		let rootRect: DOMRect | null = null;
+		root.addEventListener('mouseenter', () => { rootRect = root.getBoundingClientRect(); });
+		root.addEventListener('mousemove', (e: MouseEvent) => {
+			if (!rootRect) rootRect = root.getBoundingClientRect();
+			root.setCssProps({
+				'--bt-mx': `${Math.round(e.clientX - rootRect.left)}px`,
+				'--bt-my': `${Math.round(e.clientY - rootRect.top )}px`,
+			});
+		});
+		root.addEventListener('mouseleave', () => {
+			rootRect = null;
+			root.setCssProps({ '--bt-mx': '-9999px', '--bt-my': '-9999px' });
+		});
+		component?.register(() => { rootRect = null; });
 	}
 }
 

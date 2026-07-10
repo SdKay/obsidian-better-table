@@ -169,6 +169,25 @@ The YAML front-matter is the **only data source**. The pipe table below the `<!-
 
 ---
 
+## Themes
+
+Add `theme:` to the YAML front-matter to apply a built-in visual theme:
+
+```yaml
+theme: academic   # LaTeX booktabs style — three horizontal rules, no grid lines
+theme: plain      # Colorful gradient header + animated border
+```
+
+| Theme | Description |
+|-------|-------------|
+| *(none)* | Default — no special styling |
+| `academic 📐` | Inspired by LaTeX's booktabs package: toprule / midrule / bottomrule, no vertical lines, no cell backgrounds |
+| `plain 🙂` | Animated rainbow border, gradient header with breathing effect, cursor-reactive row glow |
+
+Themes are purely visual — they never affect data or layout.
+
+---
+
 ## Features & Roadmap
 
 | Feature | |
@@ -198,6 +217,7 @@ The YAML front-matter is the **only data source**. The pipe table below the `<!-
 | Per-cell bg color, text color, and font size — via panel or YAML | ✅ |
 | Row / column selector strips — hover to reveal, click or drag to style entire rows/columns | ✅ |
 | Per-table lock — click the 🔒 icon at the top-right corner to disable / re-enable all editing | ✅ |
+| **Themes** — set `theme: academic` (booktabs), `theme: plain` (colorful gradient + animated border) | ✅ |
 | Conditional formatting — auto-apply styles based on cell value rules | 🔜 |
 | Progress bar column type · aggregate row (SUM / COUNT) | 🔜 |
 | **Merges** | |

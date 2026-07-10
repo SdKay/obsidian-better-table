@@ -64,13 +64,9 @@ const EN = {
 	// Auto-fit all
 	autoFitAll: 'Auto-fit all column widths and row heights',
 
-	// Theme picker
+	// Theme picker (individual theme names live in @theme-label-en/zh CSS comments)
 	changeTheme:      'Change table theme',
 	themeDefault:     'Default',
-	themeAcademic:    'Academic (booktabs)',
-	themeMinimal:     'Minimal',
-	themeStriped:     'Striped',
-	themeFancy:       'Fancy ✨',
 } as const;
 
 const ZH: { [K in keyof typeof EN]: string } = {
@@ -124,10 +120,6 @@ const ZH: { [K in keyof typeof EN]: string } = {
 
 	changeTheme:      '切换表格主题',
 	themeDefault:     '默认',
-	themeAcademic:    '学术（仅横线）',
-	themeMinimal:     '简洁',
-	themeStriped:     '条纹',
-	themeFancy:       '炫技 ✨',
 };
 
 export function t(key: keyof typeof EN): string {
