@@ -85,6 +85,10 @@
 
 ![标题与备注演示](docs/demo-07-title-footer.gif)
 
+**7 · 列筛选** — 筛选展示表格
+
+![标题与备注演示](docs/demo-08-filter.gif)
+
 ---
 
 ## 格式说明

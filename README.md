@@ -85,6 +85,10 @@ Rich, interactive tables for Obsidian — with cell merges, inline editing, wiki
 
 ![Title and footer demo](docs/demo-07-title-footer.gif)
 
+**7 · Column filtering** — filter rows to focus on what matters
+
+![Column filtering demo](docs/demo-08-filter.gif)
+
 ---
 
 ## Format
