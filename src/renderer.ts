@@ -213,6 +213,7 @@ export async function renderTable(
 
 		const isHeaderSel = r1 === 0 && r2 === 0;
 		selectionPanel = openCellPanel({
+			component,
 			anchor,
 			els: selectedEls,
 			styleTarget: rangeTarget,
@@ -629,7 +630,7 @@ export async function renderTable(
 	// All three buttons share a vertical flex column positioned just left of the
 	// row selector. Autofit and theme need onStructuralOp; lock needs onToggleLock.
 	if (onStructuralOp || onToggleLock) {
-		const ctrlCol = root.createDiv({ cls: 'bt-ctrl-col' });
+		const ctrlCol = root.createDiv({ cls: 'bt-ctrl-col' + (model.locked ? ' is-locked' : '') });
 
 		// Lock button — first in column
 		if (onToggleLock) {
@@ -771,6 +772,33 @@ export async function renderTable(
 
 		const rebuild = () => {
 			updateTableHighlights();
+
+			// In auto layout (no explicit widths, e.g. the empty-block template) the <col>
+			// elements never get a width set at render time — see hasExplicitWidths above —
+			// so every offset computed below from col.style.width would read 0 and collapse
+			// the selector/resize-seam positions to the left edge. Measure each physical
+			// column's actual rendered width from an unspanned header/data cell and pin it
+			// onto the <col> so the existing col.style.width reads further down stay correct.
+			if (!hasExplicitWidths) {
+				const measured = new Map<string, number>();
+				const rows = [
+					...Array.from(thead.querySelectorAll<HTMLElement>('tr')),
+					...Array.from(tbody.querySelectorAll<HTMLElement>('tr')),
+				];
+				for (const tr of rows) {
+					for (const cell of Array.from(tr.querySelectorAll<HTMLTableCellElement>('[data-col]'))) {
+						const ci = cell.dataset.col;
+						if (ci === undefined || cell.colSpan > 1 || measured.has(ci)) continue;
+						measured.set(ci, cell.getBoundingClientRect().width);
+					}
+				}
+				for (const c of Array.from(table.querySelectorAll<HTMLElement>('col'))) {
+					const ci = c.dataset.col;
+					if (ci === undefined) continue;
+					const w = measured.get(ci);
+					if (w !== undefined) c.style.setProperty('width', `${w}px`);
+				}
+			}
 
 			// Column selector — cells positioned by --cl/--cw relative to the selector's
 			// own left edge, which CSS Grid aligns with the table wrapper automatically.
@@ -962,7 +990,11 @@ export async function renderTable(
 		// the same layout (table already shifted by --bt-sel-pad).
 		prepareLayout = () => {
 			root.setCssProps({ '--bt-sel-pad': `${SEL_TOTAL}px`, '--bt-add-pad': '24px' });
-			titleEl?.setCssProps({ '--bt-title-mb-adj': '9px' });
+			// Cancel whatever --bt-title-mb-pull the active theme set (bridged onto titleEl in
+			// tableBlock.ts) so the title sits flush above the col-selector strip on hover
+			// instead of stacking a second gap on top of the theme's own pull-closer value.
+			const pull = titleEl ? parseFloat(getComputedStyle(titleEl).getPropertyValue('--bt-title-mb-pull')) || 0 : 0;
+			titleEl?.setCssProps({ '--bt-title-mb-adj': `${-pull}px` });
 		};
 		restoreLayout = () => {
 			root.setCssProps({ '--bt-sel-pad': '0px', '--bt-add-pad': '0px' });
@@ -1054,6 +1086,7 @@ export async function renderTable(
 			rebuild(); // re-render strip cells with is-sel, keep table highlights
 
 			selectorPanel = openCellPanel({
+				component,
 				anchor, els,
 				styleTarget: target,
 				existingStyle: existing,
@@ -1335,6 +1368,7 @@ function renderHeaderCell(
 			}
 		}
 		openCellPanel({
+			component,
 			anchor: el,
 			els: [el],
 			styleTarget: `header.${col.id}`,
@@ -1373,9 +1407,10 @@ function renderHeaderCell(
 			if (el.hasClass('bt-editing')) {
 				const editor = el.querySelector<HTMLElement>('.bt-cell-editor');
 				if (editor) {
-					// caretRangeFromPoint is the Chromium/Electron equivalent of the standard caretPositionFromPoint
-				// eslint-disable-next-line @typescript-eslint/no-deprecated
-				const range = (activeDocument as Document & { caretRangeFromPoint?(x: number, y: number): Range | null }).caretRangeFromPoint?.(evt.clientX, evt.clientY);
+					// caretRangeFromPoint is the Chromium/Electron equivalent of the standard caretPositionFromPoint;
+					// cast through unknown (not `as Document & {...}`) so TS doesn't inherit the lib.dom.d.ts @deprecated tag
+					const range = (activeDocument as unknown as { caretRangeFromPoint?(x: number, y: number): Range | null })
+						.caretRangeFromPoint?.(evt.clientX, evt.clientY);
 					if (range) {
 						const sel = activeWindow.getSelection();
 						sel?.removeAllRanges();
@@ -1410,7 +1445,7 @@ function renderHeaderCell(
 		filterBtn.addEventListener('click', (e: MouseEvent) => {
 			e.stopPropagation();
 			e.preventDefault();
-			openFilterPanel(el, colIdx, model, getRegistry(), onStructuralOp);
+			openFilterPanel(el, colIdx, model, getRegistry(), onStructuralOp, component);
 		});
 	}
 	// Column resize is handled by the selector-strip handles (works with merges too)
@@ -1434,7 +1469,7 @@ async function renderDataCell(
 
 	// Special type: date picker
 	if (col.type === 'date') {
-		renderDateCell(el, trimmed, rowIdx, colIdx, model, onCellChange, onStructuralOp);
+		renderDateCell(el, trimmed, rowIdx, colIdx, model, component, onCellChange, onStructuralOp);
 		return;
 	}
 
@@ -1514,6 +1549,7 @@ async function renderDataCell(
 				const { sTarget, exactTarget, isMerge, rangeRule, applyStyle } =
 					buildCellStyleContext(rowIdx, colIdx, model, onStructuralOp);
 				openCellPanel({
+					component,
 					anchor: el, els: [el],
 					styleTarget: sTarget,
 					existingStyle: cellEffectiveStyle(model, rowIdx, colIdx),
@@ -1536,15 +1572,13 @@ async function renderDataCell(
 			const items = Array.from(list.querySelectorAll<HTMLElement>(':scope > li'));
 			if (items.length === 0) return;
 			const isOrdered = list.tagName === 'OL';
-			// Wrap in inline-block so the block centers as a unit while items stay left-aligned
-			const wrapper = activeDocument.createElement('div');
-			wrapper.className = 'bt-list-block';
+			// Wrap in inline-block so the block centers as a unit while items stay left-aligned.
+			// Built inside a detached fragment (not activeDocument itself, which only ever
+			// allows one root child) then moved into place below via replaceChild.
+			const wrapper = createFragment().createDiv({ cls: 'bt-list-block' });
 			items.forEach((item, i) => {
-				if (i > 0) wrapper.appendChild(activeDocument.createElement('br'));
-				const marker = activeDocument.createElement('span');
-				marker.className = 'bt-list-marker';
-				marker.textContent = isOrdered ? (i + 1) + '. ' : '• ';
-				wrapper.appendChild(marker);
+				if (i > 0) wrapper.createEl('br');
+				wrapper.createSpan({ cls: 'bt-list-marker', text: isOrdered ? (i + 1) + '. ' : '• ' });
 				Array.from(item.childNodes).forEach(n => wrapper.appendChild(n));
 			});
 			list.parentNode?.replaceChild(wrapper, list);
@@ -1582,6 +1616,7 @@ async function renderDataCell(
 			const { sTarget, exactTarget, applyStyle } =
 				buildCellStyleContext(rowIdx, colIdx, model, onStructuralOp);
 			openCellPanel({
+				component,
 				anchor: el, els: [el],
 				styleTarget: sTarget,
 				existingStyle: cellEffectiveStyle(model, rowIdx, colIdx),
@@ -1602,6 +1637,7 @@ function renderDateCell(
 	rowIdx: number,
 	colIdx: number,
 	model: TableModelV2,
+	component: Component,
 	onCellChange?: CellChangeHandler,
 	onStructuralOp?: StructuralOpHandler,
 ): void {
@@ -1647,6 +1683,7 @@ function renderDateCell(
 			const { sTarget, exactTarget, applyStyle } =
 				buildCellStyleContext(rowIdx, colIdx, model, onStructuralOp);
 			openCellPanel({
+				component,
 				anchor: el, els: [el],
 				styleTarget: sTarget,
 				existingStyle: cellEffectiveStyle(model, rowIdx, colIdx),
@@ -1667,6 +1704,7 @@ interface CellOpDef {
 }
 
 interface CellPanelConfig {
+	component:       Component;
 	anchor:          HTMLElement;
 	els:             HTMLElement[];
 	styleTarget:     string;
@@ -1821,6 +1859,7 @@ function openFilterPanel(
 	model: TableModelV2,
 	registry: ChoiceRegistry,
 	onStructuralOp: StructuralOpHandler,
+	component: Component,
 ): void {
 	closeActivePanel?.();
 
@@ -1898,21 +1937,21 @@ function openFilterPanel(
 	const applyBtn = foot.createEl('button', { cls: 'bt-sp-apply',     text: t('apply') });
 
 	let committed = false;
+	let detachGlobalListeners: (() => void) | null = null;
 	const close = () => {
 		if (!committed) committed = true;
 		panel.remove();
 		if (closeActivePanel === doClose) closeActivePanel = null;
+		detachGlobalListeners?.();
 	};
 	const doClose = close;
 	closeActivePanel = doClose;
 
 	clearBtn.addEventListener('click', () => {
-		committed = true;
 		void onStructuralOp({ type: 'set-filter', colId: col.id, values: null });
 		close();
 	});
 	applyBtn.addEventListener('click', () => {
-		committed = true;
 		const selected = checkboxes.filter(c => c.chk.checked).map(c => c.value);
 		const allSelected = selected.length === checkboxes.length;
 		void onStructuralOp({ type: 'set-filter', colId: col.id, values: allSelected ? null : selected });
@@ -1922,11 +1961,14 @@ function openFilterPanel(
 		if (e.key === 'Escape') { e.stopPropagation(); close(); }
 		if (e.key === 'Enter')  { e.preventDefault(); applyBtn.click(); }
 	});
+	// Bound via component.registerDomEvent (not raw addEventListener) so an abrupt unload
+	// (note closed/switched while the panel is open) still detaches this from activeDocument.
 	window.setTimeout(() => {
 		const outside = (e: MouseEvent) => {
-			if (!panel.contains(e.target as Node)) { close(); activeDocument.removeEventListener('mousedown', outside); }
+			if (!panel.contains(e.target as Node)) close();
 		};
-		activeDocument.addEventListener('mousedown', outside);
+		component.registerDomEvent(activeDocument, 'mousedown', outside);
+		detachGlobalListeners = () => activeDocument.removeEventListener('mousedown', outside);
 	}, 0);
 }
 
@@ -1935,7 +1977,7 @@ function openCellPanel(config: CellPanelConfig): HTMLElement {
 	// Close any panel that is currently open (restores preview styles on the old cells).
 	closeActivePanel?.();
 
-	const { anchor, els, existingStyle, inheritedStyle = {}, showTextColor, cellOps, typeSection, onApplyStyle } = config;
+	const { component, anchor, els, existingStyle, inheritedStyle = {}, showTextColor, cellOps, typeSection, onApplyStyle } = config;
 
 	const saved = els.map(e => ({
 		bg:       e.style.getPropertyValue('background-color'),
@@ -2083,17 +2125,18 @@ function openCellPanel(config: CellPanelConfig): HTMLElement {
 
 	// Actions
 	let committed = false;
+	let detachGlobalListeners: (() => void) | null = null;
 	const close = (restore: boolean) => {
 		if (!committed) { if (restore) restoreEls(); committed = true; }
 		panel.remove();
 		if (closeActivePanel === thisClose) closeActivePanel = null;
+		detachGlobalListeners?.();
 		config.onClose?.();
 	};
 	const thisClose = () => close(true);
 	closeActivePanel = thisClose;
-	clearBtn.addEventListener('click', () => { committed = true; onApplyStyle(null, null, null, null, null); panel.remove(); config.onClose?.(); });
+	clearBtn.addEventListener('click', () => { onApplyStyle(null, null, null, null, null); close(false); });
 	applyBtn.addEventListener('click', () => {
-		committed = true;
 		onApplyStyle(
 			bgEnable.checked ? bgPicker.value : null,
 			colorEnable?.checked ? (colorPicker?.value ?? null) : null,
@@ -2101,32 +2144,29 @@ function openCellPanel(config: CellPanelConfig): HTMLElement {
 			boldCheck ? (boldCheck.checked ? true : null) : null,
 			italicCheck ? (italicCheck.checked ? true : null) : null,
 		);
-		panel.remove(); config.onClose?.();
+		close(false);
 	});
 	// Enter in the panel (not in size input) confirms; handled here for when a
 	// panel control has focus.
 	panel.addEventListener('keydown', (evt: KeyboardEvent) => {
 		if (evt.key === 'Enter' && evt.target !== sizeInput) { evt.preventDefault(); applyBtn.click(); }
 	});
-	// Escape and outside-click close the panel regardless of where focus is.
+	// Escape and outside-click close the panel regardless of where focus is. Bound via
+	// component.registerDomEvent (not raw addEventListener) so an abrupt unload (note closed/
+	// switched while the panel is open) still detaches these from activeDocument.
 	window.setTimeout(() => {
 		const outside = (evt: MouseEvent) => {
-			if (!panel.contains(evt.target as Node)) {
-				close(true);
-				activeDocument.removeEventListener('mousedown', outside);
-				activeDocument.removeEventListener('keydown', escKey);
-			}
+			if (!panel.contains(evt.target as Node)) close(true);
 		};
 		const escKey = (evt: KeyboardEvent) => {
-			if (evt.key === 'Escape') {
-				evt.stopPropagation();
-				close(true);
-				activeDocument.removeEventListener('keydown', escKey);
-				activeDocument.removeEventListener('mousedown', outside);
-			}
+			if (evt.key === 'Escape') { evt.stopPropagation(); close(true); }
 		};
-		activeDocument.addEventListener('mousedown', outside);
-		activeDocument.addEventListener('keydown', escKey);
+		component.registerDomEvent(activeDocument, 'mousedown', outside);
+		component.registerDomEvent(activeDocument, 'keydown', escKey);
+		detachGlobalListeners = () => {
+			activeDocument.removeEventListener('mousedown', outside);
+			activeDocument.removeEventListener('keydown', escKey);
+		};
 	}, 0);
 	return panel;
 }

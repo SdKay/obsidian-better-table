@@ -19,9 +19,6 @@ export class BetterTableSettingTab extends PluginSettingTab {
 		const { containerEl } = this;
 		containerEl.empty();
 
-		// ── General ───────────────────────────────────────────────────────────
-		new Setting(containerEl).setHeading().setName('General');
-
 		new Setting(containerEl)
 			.setName('Allow editing in reading view')
 			.setDesc(
@@ -39,7 +36,7 @@ export class BetterTableSettingTab extends PluginSettingTab {
 			);
 
 		// ── Built-in types (informational) ───────────────────────────────────
-		new Setting(containerEl).setHeading().setName('Built-in types');
+		new Setting(containerEl).setName('Built-in types').setHeading();
 
 		const builtinInfo = containerEl.createDiv({ cls: 'bt-builtin-info' });
 
@@ -63,7 +60,7 @@ export class BetterTableSettingTab extends PluginSettingTab {
 		}
 
 		// ── Custom types ──────────────────────────────────────────────────────
-		new Setting(containerEl).setHeading().setName('Custom types');
+		new Setting(containerEl).setName('Custom types').setHeading();
 
 		const listEl = containerEl.createDiv({ cls: 'bt-custom-types-list' });
 		this.renderList(listEl);
