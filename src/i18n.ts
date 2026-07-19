@@ -16,6 +16,9 @@ const EN = {
 	hideColumn:      'Hide column',
 	deleteRow:       'Delete row',
 	deleteColumn:    'Delete column',
+	alignLeft:       'Align left',
+	alignCenter:     'Align center',
+	alignRight:      'Align right',
 
 	// Style panel
 	background:  'Background',
@@ -58,9 +61,12 @@ const EN = {
 	lockTable:   'Lock table (disable graphical editing)',
 	unlockTable: 'Unlock table (enable graphical editing)',
 
-
 	// Auto-fit all
 	autoFitAll: 'Auto-fit all column widths and row heights',
+
+	// Theme picker (individual theme names live in @theme-label-en/zh CSS comments)
+	changeTheme:      'Change table theme',
+	themeDefault:     'Default',
 } as const;
 
 const ZH: { [K in keyof typeof EN]: string } = {
@@ -74,6 +80,9 @@ const ZH: { [K in keyof typeof EN]: string } = {
 	hideColumn:      '隐藏列',
 	deleteRow:       '删除行',
 	deleteColumn:    '删除列',
+	alignLeft:       '左对齐',
+	alignCenter:     '居中',
+	alignRight:      '右对齐',
 
 	background:  '背景色',
 	textColor:   '字体颜色',
@@ -108,6 +117,9 @@ const ZH: { [K in keyof typeof EN]: string } = {
 	unlockTable: '解锁表格（启用图形化编辑）',
 
 	autoFitAll: '自动调整所有列宽和行高',
+
+	changeTheme:      '切换表格主题',
+	themeDefault:     '默认',
 };
 
 export function t(key: keyof typeof EN): string {

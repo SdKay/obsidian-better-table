@@ -1,0 +1,31 @@
+/* @theme-label-en: Academic 📐 */
+/* @theme-label-zh: 学术 📐 */
+/*
+ * Academic (booktabs) theme — inspired by LaTeX's booktabs package.
+ * Three horizontal rules only: toprule / midrule / bottomrule.
+ * No vertical lines, no background colors.
+ * §15 compliant: only CSS variable assignments and non-layout visual properties.
+ */
+
+/* Suppress cell backgrounds; --bt-cell-border defaults to none so no grid lines. */
+.bt-theme-academic .bt-table .bt-th,
+.bt-theme-academic .bt-table .bt-td {
+    background: none !important;
+}
+
+/* Toprule + midrule: thick line above header, medium line below header.
+ * box-shadow used for per-row control (--bt-cell-border-* variables apply to all
+ * cells uniformly; row-specific rules still require box-shadow). */
+.bt-theme-academic .bt-table thead tr:first-child .bt-th {
+    box-shadow: inset 0 1.5px 0 var(--text-muted), inset 0 -0.8px 0 var(--text-muted);
+}
+
+/* Midrule on continuation header rows. */
+.bt-theme-academic .bt-table thead tr:not(:first-child) .bt-th {
+    box-shadow: inset 0 -0.8px 0 var(--text-muted);
+}
+
+/* Bottomrule — thick line after the last data row. */
+.bt-theme-academic .bt-table tbody tr:last-child .bt-td {
+    box-shadow: inset 0 -1.5px 0 var(--text-muted);
+}
