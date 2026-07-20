@@ -1566,6 +1566,18 @@ async function renderDataCell(
 
 	if (trimmed) {
 		await MarkdownRenderer.render(app, trimmed, el, sourcePath, component);
+		// A soft line break (a lone \n typed via Shift+Enter, as opposed to a literal
+		// <br> the user typed) is rendered by the markdown engine as "<br>\n" — the
+		// trailing \n lands as a leading newline on the following text node, which
+		// renders as extra vertical space and makes that break look looser than a
+		// literal <br>. Strip it so every <br> in the cell — typed or soft-break —
+		// has identical spacing.
+		el.querySelectorAll('br').forEach(br => {
+			const next = br.nextSibling;
+			if (next?.nodeType === Node.TEXT_NODE && next.textContent) {
+				next.textContent = next.textContent.replace(/^\n+/, '');
+			}
+		});
 		// Convert <ul>/<ol> to <br>-separated inline content — the only reliable way
 		// to match <br> line spacing regardless of which theme variables are in use.
 		el.querySelectorAll<HTMLElement>('ul, ol').forEach(list => {
