@@ -35,7 +35,8 @@ export type StructuralOpV2 =
 	| { type: 'set-filter';      colId: string; values: string[] | null }
 	| { type: 'set-theme';       theme: string | null }
 	| { type: 'toggle-lock' }
-	| { type: 'toggle-collapse' };
+	| { type: 'toggle-collapse' }
+	| { type: 'paste-values';   anchorRowId: string; anchorColId: string; values: string[][] };
 
 export function applyStructuralOpV2(model: TableModelV2, op: StructuralOpV2): void {
 	switch (op.type) {
@@ -234,6 +235,40 @@ export function applyStructuralOpV2(model: TableModelV2, op: StructuralOpV2): vo
 		case 'toggle-collapse':
 			model.collapsed = !model.collapsed || undefined;
 			break;
+
+		// ── Paste (from Excel/clipboard) ────────────────────────────────────────
+		case 'paste-values': {
+			const { anchorRowId, anchorColId, values } = op;
+			if (values.length === 0) break;
+			const rowStart = model.rows.findIndex(r => r.id === anchorRowId);
+			const colStart = model.columns.findIndex(c => c.id === anchorColId);
+			if (rowStart < 0 || colStart < 0) break;
+			const numRows = values.length;
+			const numCols = values.reduce((max, r) => Math.max(max, r.length), 0);
+
+			const existingRowIds = new Set(model.rows.map(r => r.id));
+			while (model.rows.length < rowStart + numRows) {
+				model.rows.push({ id: genId('r', existingRowIds), cells: {} });
+			}
+			const existingColIds = new Set(model.columns.map(c => c.id));
+			while (model.columns.length < colStart + numCols) {
+				model.columns.push({ id: genId('c', existingColIds), name: '' });
+			}
+
+			for (let r = 0; r < numRows; r++) {
+				const row = model.rows[rowStart + r];
+				const rowValues = values[r];
+				if (!row || !rowValues) continue;
+				for (let c = 0; c < rowValues.length; c++) {
+					const col = model.columns[colStart + c];
+					if (!col) continue;
+					const value = rowValues[c] ?? '';
+					if (value === '') delete row.cells[col.id];
+					else row.cells[col.id] = value;
+				}
+			}
+			break;
+		}
 	}
 }
 

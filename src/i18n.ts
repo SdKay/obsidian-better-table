@@ -19,6 +19,9 @@ const EN = {
 	alignLeft:       'Align left',
 	alignCenter:     'Align center',
 	alignRight:      'Align right',
+	copyToExcel:     'Copy to Excel',
+	copyToMarkdown:  'Copy as Markdown',
+	copyFailed:      'Copy failed — clipboard access was denied',
 
 	// Style panel
 	background:  'Background',
@@ -87,6 +90,9 @@ const ZH: { [K in keyof typeof EN]: string } = {
 	alignLeft:       '左对齐',
 	alignCenter:     '居中',
 	alignRight:      '右对齐',
+	copyToExcel:     '复制到 Excel',
+	copyToMarkdown:  '复制为 Markdown',
+	copyFailed:      '复制失败——剪贴板访问被拒绝',
 
 	background:  '背景色',
 	textColor:   '字体颜色',

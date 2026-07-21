@@ -1,4 +1,4 @@
-import { App, Component, MarkdownRenderer, Menu, setIcon } from 'obsidian';
+import { App, Component, MarkdownRenderer, Menu, Notice, setIcon } from 'obsidian';
 import {
 	t, isZh, typeLabel,
 	hideRowsLabel, hideColsLabel, deleteRowsLabel, deleteColsLabel,
@@ -10,6 +10,7 @@ import type { ColumnDefV2, TableModelV2 } from './model';
 import type { ChoiceRegistry } from './choiceRegistry';
 import type { StructuralOpV2 } from './operations';
 import { colIndexToLetter } from './utils';
+import { formatRow, displayLen } from './serializer';
 import { SEL_TOTAL, AUTOFIT_OFFSET } from './selectorLayout';
 import { resolveStylesV2, resolveHeaderStylesV2, parseStyleTarget, matchesHeaderCell, matchesCell, type ResolvedStyleV2 } from './styleTarget';
 import type { StyleRuleV2 } from './model';
@@ -240,6 +241,11 @@ export async function renderTable(
 					action: () => { for (let ci = c1; ci <= c2; ci++) { const id = colId(model, ci); if (id) void onStructuralOp({ type: 'hide-col', colId: id }); } } },
 				{ icon: 'trash', label: deleteColsLabel(c1, c2, colIndexToLetter), danger: true,
 					action: () => { for (let ci = c2; ci >= c1; ci--) { const id = colId(model, ci); if (id) void onStructuralOp({ type: 'delete-col', colId: id }); } } },
+				{ divider: true },
+				{ icon: 'copy', label: t('copyToExcel'),
+					action: () => copyRangeToClipboard(model, r1, r2, c1, c2) },
+				{ icon: 'file-text', label: t('copyToMarkdown'),
+					action: () => copyRangeAsMarkdown(model, r1, r2, c1, c2) },
 			],
 			onApplyStyle: (bg, color, size, bold, italic) => void onStructuralOp({ type: 'set-range-style', target: rangeTarget, bg, color, size, bold, italic }),
 			onClose: () => { clearSel(); selectionPanel = null; },
@@ -1111,16 +1117,30 @@ export async function renderTable(
 			const existing = { bg: rule?.bg, color: rule?.color, size: rule?.size };
 
 			// Build hide / delete ops, matching the style of the cell selection panel.
-			const cellOps: CellOpDef[] = axis === 'col' ? [
+			const copyOps: CellOpEntry[] = [
+				{ icon: 'copy', label: t('copyToExcel'),
+					action: () => axis === 'col'
+						? copyRangeToClipboard(model, 0, model.rows.length, lo, hi)
+						: copyRangeToClipboard(model, lo, hi, 0, model.columns.length - 1) },
+				{ icon: 'file-text', label: t('copyToMarkdown'),
+					action: () => axis === 'col'
+						? copyRangeAsMarkdown(model, 0, model.rows.length, lo, hi)
+						: copyRangeAsMarkdown(model, lo, hi, 0, model.columns.length - 1) },
+			];
+			const cellOps: CellOpEntry[] = axis === 'col' ? [
 				{ icon: 'eye-off', label: hideColsLabel(lo, hi, colIndexToLetter),
 					action: () => { for (let ci = lo; ci <= hi; ci++) { const id = colId(model, ci); if (id) void onStructuralOp({ type: 'hide-col', colId: id }); } } },
 				{ icon: 'trash',   label: deleteColsLabel(lo, hi, colIndexToLetter), danger: true,
 					action: () => { for (let ci = hi; ci >= lo; ci--) { const id = colId(model, ci); if (id) void onStructuralOp({ type: 'delete-col', colId: id }); } } },
-			] : lo === 0 && hi === 0 ? [] : [  // no hide/delete for header row
+				{ divider: true },
+				...copyOps,
+			] : lo === 0 && hi === 0 ? copyOps : [  // no hide/delete for header row
 				{ icon: 'eye-off', label: hideRowsLabel(lo, hi),
 					action: () => { for (let ri = lo; ri <= hi; ri++) { const id = rowId(model, ri); if (id) void onStructuralOp({ type: 'hide-row', rowId: id }); } } },
 				{ icon: 'trash',   label: deleteRowsLabel(lo, hi), danger: true,
 					action: () => { for (let ri = hi; ri >= lo; ri--) { const id = rowId(model, ri); if (id) void onStructuralOp({ type: 'delete-row', rowId: id }); } } },
+				{ divider: true },
+				...copyOps,
 			];
 
 			// Keep selAxis/selI1/selI2 so highlights stay visible while the panel is open.
@@ -1403,7 +1423,7 @@ function renderHeaderCell(
 
 	const openPanel = (evt: MouseEvent, isDblClick = false) => {
 		if (!onStructuralOp && !onColTypeChange) return;
-		const ops: CellOpDef[] = [];
+		const ops: CellOpEntry[] = [];
 		if (onStructuralOp) {
 			ops.push(
 				// Insert first data row: afterRowId = null (insert before all data rows)
@@ -1421,6 +1441,13 @@ function renderHeaderCell(
 					{ icon: 'align-right',  label: t('alignRight'),  action: () => void onStructuralOp({ type: 'set-col-align', colId: col.id, align: 'right' }) },
 				);
 			}
+			ops.push(
+				{ divider: true },
+				{ icon: 'copy', label: t('copyToExcel'),
+					action: () => copyRangeToClipboard(model, 0, 0, colIdx, colIdx) },
+				{ icon: 'file-text', label: t('copyToMarkdown'),
+					action: () => copyRangeAsMarkdown(model, 0, 0, colIdx, colIdx) },
+			);
 		}
 		openCellPanel({
 			component,
@@ -1671,7 +1698,12 @@ async function renderDataCell(
 			if (editTimer !== null) return;
 			editTimer = window.setTimeout(() => {
 				editTimer = null;
-				enterEditMode(el, value, rowIdx, colIdx, app, sourcePath, onCellChange);
+				const onPasteGrid = onStructuralOp ? (values: string[][]) => {
+					const anchorRowId = rowId(model, rowIdx);
+					const anchorColId = colId(model, colIdx);
+					if (anchorRowId && anchorColId) void onStructuralOp({ type: 'paste-values', anchorRowId, anchorColId, values });
+				} : undefined;
+				enterEditMode(el, value, rowIdx, colIdx, app, sourcePath, onCellChange, onPasteGrid);
 			}, 200);
 		});
 	}
@@ -1770,6 +1802,13 @@ interface CellOpDef {
 	action:  () => void;
 }
 
+/** A thin visual divider between groups of cell-op buttons. */
+interface CellOpDivider {
+	divider: true;
+}
+
+type CellOpEntry = CellOpDef | CellOpDivider;
+
 interface CellPanelConfig {
 	component:       Component;
 	anchor:          HTMLElement;
@@ -1779,7 +1818,7 @@ interface CellPanelConfig {
 	inheritedStyle?: { bg?: string; color?: string; size?: number; bold?: boolean; italic?: boolean };
 	showTextColor:   boolean;
 	showBoldItalic?: boolean; // default true; false for typed cells where pill overrides bold/italic
-	cellOps:       CellOpDef[];
+	cellOps:       CellOpEntry[];
 	typeSection?:  {
 		colIdx:          number;
 		currentType?:    string;
@@ -1876,12 +1915,71 @@ function buildCellStyleContext(
 }
 
 
+/** Raw stored value of a display cell — r=0 is the header (column name), r>=1 is a data row. */
+function cellRawValue(model: TableModelV2, r: number, c: number): string {
+	const col = model.columns[c];
+	if (!col) return '';
+	return r === 0 ? (col.name ?? '') : (model.rows[r - 1]?.cells[col.id] ?? '');
+}
+
+function buildRangeGrid(model: TableModelV2, r1: number, r2: number, c1: number, c2: number): string[][] {
+	const grid: string[][] = [];
+	for (let r = r1; r <= r2; r++) {
+		const row: string[] = [];
+		for (let c = c1; c <= c2; c++) row.push(cellRawValue(model, r, c));
+		grid.push(row);
+	}
+	return grid;
+}
+
+/**
+ * Copies a rectangular range to the system clipboard as both plain-text TSV and an
+ * HTML <table> — spreadsheet apps (Excel, Sheets) read the HTML table on paste and
+ * reconstruct the grid; anything else falls back to the tab/newline-delimited text.
+ */
+function copyRangeToClipboard(model: TableModelV2, r1: number, r2: number, c1: number, c2: number): void {
+	const grid = buildRangeGrid(model, r1, r2, c1, c2);
+	const tsv  = grid.map(row => row.map(v => v.replace(/\t/g, ' ').replace(/\r?\n/g, ' ')).join('\t')).join('\n');
+	const esc  = (s: string) => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+	const html = `<table>${grid.map(row => `<tr>${row.map(v => `<td>${esc(v)}</td>`).join('')}</tr>`).join('')}</table>`;
+
+	void activeWindow.navigator.clipboard.write([
+		new ClipboardItem({
+			'text/plain': new Blob([tsv], { type: 'text/plain' }),
+			'text/html':  new Blob([html], { type: 'text/html' }),
+		}),
+	]).catch(() => new Notice(t('copyFailed')));
+}
+
+/**
+ * Copies a rectangular range to the clipboard as a standard GFM pipe table (the
+ * topmost selected row becomes the header row) — pastes as literal Markdown source,
+ * e.g. into a note or a chat box. Cell pipes are escaped and newlines become <br>
+ * so the table stays valid on a single physical line per row.
+ */
+function copyRangeAsMarkdown(model: TableModelV2, r1: number, r2: number, c1: number, c2: number): void {
+	const grid = buildRangeGrid(model, r1, r2, c1, c2).map(row =>
+		row.map(v => v.replace(/\|/g, '\\|').replace(/\r?\n/g, '<br>')));
+	const header = grid[0];
+	if (!header) return;
+	const widths = header.map((_, ci) => Math.max(3, ...grid.map(row => displayLen(row[ci] ?? ''))));
+
+	const lines = [
+		formatRow(header, widths),
+		'| ' + widths.map(w => '-'.repeat(w)).join(' | ') + ' |',
+		...grid.slice(1).map(row => formatRow(row, widths)),
+	];
+
+	void activeWindow.navigator.clipboard.writeText(lines.join('\n'))
+		.catch(() => new Notice(t('copyFailed')));
+}
+
 /** Standard cell-op buttons for a data cell (row/col insert/delete/hide + optional unmerge). */
 function dataCellOps(
 	rowIdx: number, colIdx: number,
 	model: TableModelV2, onStructuralOp: StructuralOpHandler,
-): CellOpDef[] {
-	const ops: CellOpDef[] = [];
+): CellOpEntry[] {
+	const ops: CellOpEntry[] = [];
 	const merge = getMergeOrigin(rowIdx, colIdx, model);
 	if (merge && (merge.endRow > merge.startRow || merge.endCol > merge.startCol)) {
 		ops.push({ icon: 'table-2', label: t('unmergeCells'),
@@ -1912,6 +2010,11 @@ function dataCellOps(
 			action: () => { for (let r = r2; r >= r1; r--) { const id = rowId(model, r); if (id) void onStructuralOp({ type: 'delete-row', rowId: id }); } } },
 		{ icon: 'trash', label: deleteColsLabel(c1, c2, colIndexToLetter), danger: true,
 			action: () => { for (let c = c2; c >= c1; c--) { const id = colId(model, c); if (id) void onStructuralOp({ type: 'delete-col', colId: id }); } } },
+		{ divider: true },
+		{ icon: 'copy', label: t('copyToExcel'),
+			action: () => copyRangeToClipboard(model, r1, r2, c1, c2) },
+		{ icon: 'file-text', label: t('copyToMarkdown'),
+			action: () => copyRangeAsMarkdown(model, r1, r2, c1, c2) },
 	);
 	return ops;
 }
@@ -2080,6 +2183,10 @@ function openCellPanel(config: CellPanelConfig): HTMLElement {
 	// Cell ops
 	if (cellOps.length > 0) {
 		for (const op of cellOps) {
+			if ('divider' in op) {
+				panel.createDiv({ cls: 'bt-cp-divider' });
+				continue;
+			}
 			const item = panel.createDiv({ cls: `bt-cp-item${op.danger ? ' bt-cp-danger' : ''}` });
 			const iconEl = item.createSpan({ cls: 'bt-cp-item-icon' });
 			setIcon(iconEl, op.icon);
@@ -2388,6 +2495,7 @@ function enterEditMode(
 	app: App,
 	sourcePath: string,
 	onCellChange: CellChangeHandler,
+	onPasteGrid?: (values: string[][]) => void,
 ): void {
 	const savedNodes = Array.from(el.childNodes).map(n => n.cloneNode(true));
 
@@ -2432,6 +2540,22 @@ function enterEditMode(
 	};
 
 	editor.addEventListener('blur', save);
+	if (onPasteGrid) {
+		// Only intercept clipboard content that actually came from a spreadsheet
+		// (Excel/Sheets always emit an HTML <table> alongside the plain text) —
+		// otherwise leave ordinary multi-line text paste as native single-cell text.
+		editor.addEventListener('paste', (evt: ClipboardEvent) => {
+			const html = evt.clipboardData?.getData('text/html') ?? '';
+			if (!/<table[\s>]/i.test(html)) return;
+			const text = evt.clipboardData?.getData('text/plain');
+			if (!text) return;
+			evt.preventDefault();
+			cancel();
+			const rows = text.split(/\r\n|\n|\r/);
+			if (rows.length > 1 && rows[rows.length - 1] === '') rows.pop();
+			onPasteGrid(rows.map(r => r.split('\t')));
+		});
+	}
 	editor.addEventListener('keydown', (evt: KeyboardEvent) => {
 		// Stop Ctrl/Meta combos from bubbling to Obsidian's CodeMirror handlers.
 		// The browser handles Ctrl+V / Ctrl+Z / Ctrl+A natively for contenteditable,

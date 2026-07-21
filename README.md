@@ -203,7 +203,7 @@ Themes are purely visual — they never affect data or layout.
 | Double-click / right-click menu — insert, delete, hide rows & columns; merge cells; set style; change column type | ✅ |
 | Column alignment (left / center / right) — in the double-click header menu | ✅ |
 | Keyboard navigation — arrow keys between cells, Tab to advance | 🔜 |
-| Paste table from Excel / CSV | 🔜 |
+| Paste values from Excel / Sheets — Ctrl+V into a cell, detected via clipboard HTML | ✅ |
 | **Rich cell content** | |
 | Math formulas — inline KaTeX: `$E=mc^2$` | ✅ |
 | Full Markdown: **bold**, *italic*, ==highlight==, `[[wikilinks]]`, external links | ✅ |
@@ -228,7 +228,8 @@ Themes are purely visual — they never affect data or layout.
 | Progress bar column type · aggregate row (SUM / COUNT) | 🔜 |
 | **Merges** | |
 | Cell merging — drag-select → Merge in popup, or declare in YAML | ✅ |
-| Copy / paste between rich-table blocks or to / from Excel (merge state preserved) | 🔜 |
+| Copy selection to Excel / Sheets or as a Markdown table — selection/cell/header menus | ✅ |
+| Merge / style state preserved when copying to Excel | 🔜 |
 | **Table structure** | |
 | Hover selector strips to reveal ⠿ drag grips; drag to reorder rows / columns | ✅ |
 | Hover selector strips to reveal resize seams; drag to resize, double-click to auto-fit | ✅ |

@@ -133,11 +133,12 @@ function buildPipeTable(m: TableModelV2): string {
 	return lines.join('\n');
 }
 
-function formatRow(cells: string[], widths: number[]): string {
+/** Exported for reuse by the "copy as Markdown" clipboard action in renderer.ts. */
+export function formatRow(cells: string[], widths: number[]): string {
 	return '| ' + cells.map((c, i) => c.padEnd(widths[i] ?? 0)).join(' | ') + ' |';
 }
 
-function displayLen(s: string): number {
+export function displayLen(s: string): number {
 	// Rough CJK width estimate (each CJK char ≈ 2 monospace units)
 	let len = 0;
 	for (const ch of s) {
