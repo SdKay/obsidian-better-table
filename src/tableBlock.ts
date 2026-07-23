@@ -333,8 +333,11 @@ export class TableBlock extends MarkdownRenderChild {
 		if (!(file instanceof TFile)) return;
 		const info = this.ctx.getSectionInfo(this.containerEl);
 		if (!info) return;
-		// Template is already v2 format — insert directly.
-		const v2Template = getEmptyTemplate();
+		// The template file's own pipe-table mirror is source-controlled by hand and
+		// easy to forget to update after editing the YAML — regenerate it here via
+		// the same parse→serialize round trip a real write-back uses, instead of
+		// trusting the template file's mirror to already be correct.
+		const v2Template = serializeTable(parseTable(getEmptyTemplate()));
 		await this.plugin.app.vault.process(file, content => {
 			const lines = content.split('\n');
 			return [
