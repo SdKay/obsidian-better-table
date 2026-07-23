@@ -190,6 +190,25 @@ theme: plain      # Colorful gradient header + animated border
 
 Themes are purely visual — they never affect data or layout.
 
+**Quick customization without a theme:** for a small tweak (not a full theme), set one of these CSS variables on `.bt-render-root` in an Obsidian CSS snippet — no selectors needed:
+
+| Variable | Controls | Default |
+|----------|----------|---------|
+| `--bt-border-outer` | Table's outer edge | `none` |
+| `--bt-cell-border` (+ `-top`/`-right`/`-bottom`/`-left`) | Gridlines between cells | `none` |
+| `--bt-cell-bg` | Data cell background | `transparent` |
+| `--bt-header-bg` | Header cell background | theme default |
+
+```css
+.bt-render-root {
+  --bt-header-bg: #223;
+  --bt-cell-bg: #fafafa;
+  --bt-border-outer: 2px solid #888;
+}
+```
+
+A manually-set per-cell style (via the style panel) always wins over both themes and these variables.
+
 ---
 
 ## Features & Roadmap

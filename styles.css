@@ -442,16 +442,20 @@
 	transform: translateY(-1px);
 }
 
-/* Drop indicators — higher specificity to override table cell borders */
+/* Drop indicators — must win over the --bt-cell-border block above, which sets
+ * border-top/left with !important (default: none). Matching its !important AND
+ * its .bt-render-root prefix (for equal-or-higher specificity among !important
+ * rules — !important doesn't bypass specificity, it only raises the priority
+ * *bracket* the comparison happens in) is required, not just adding !important. */
 /* Row reorder: horizontal line at the top of the target row */
-.bt-table tr.bt-drop-before > td,
-.bt-table tr.bt-drop-before > th {
-	border-top: 2px solid var(--interactive-accent);
+.bt-render-root .bt-table tr.bt-drop-before > td,
+.bt-render-root .bt-table tr.bt-drop-before > th {
+	border-top: 2px solid var(--interactive-accent) !important;
 }
 /* Col reorder: vertical line on the left edge of every cell in the target col */
-.bt-table td.bt-col-drop-before,
-.bt-table th.bt-col-drop-before {
-	border-left: 2px solid var(--interactive-accent);
+.bt-render-root .bt-table td.bt-col-drop-before,
+.bt-render-root .bt-table th.bt-col-drop-before {
+	border-left: 2px solid var(--interactive-accent) !important;
 }
 
 /* Dragging state */
@@ -459,7 +463,15 @@
 	opacity: 0.4;
 }
 
+/* Quick-customize variable surface: a theme/user snippet only needs to set these
+ * four (plus --bt-cell-border above) to restyle the table without touching any
+ * selector — the rest of the table's look is base styles.css's responsibility.
+ *   --bt-border-outer  none                          → table's own outer edge
+ *   --bt-cell-bg        transparent                  → data cell background
+ *   --bt-header-bg      var(--background-secondary)  → header cell background
+ * (See the --bt-cell-border block above for the inner/gridline equivalent.) */
 .bt-table {
+	border: var(--bt-border-outer, none);
 	border-collapse: collapse;
 	table-layout: auto; /* JS switches to fixed + sets inline width when any column has an explicit width */
 	font-size: var(--font-ui-medium);
@@ -476,8 +488,12 @@
 	text-align: center;
 }
 
+.bt-table .bt-td {
+	background-color: var(--bt-cell-bg, transparent);
+}
+
 .bt-table .bt-th {
-	background-color: var(--background-secondary);
+	background-color: var(--bt-header-bg, var(--background-secondary));
 	font-weight: var(--font-semibold);
 }
 

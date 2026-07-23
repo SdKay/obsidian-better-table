@@ -190,6 +190,25 @@ theme: plain      # 彩虹渐变表头 + 动态边框
 
 主题只影响视觉效果，不影响数据和布局。
 
+**不选主题也能快速微调：** 只想改个小细节（不想套完整主题）时，在 Obsidian 的 CSS snippet 里对 `.bt-render-root` 设置以下变量即可，不需要写任何选择器：
+
+| 变量 | 控制内容 | 默认值 |
+|------|---------|--------|
+| `--bt-border-outer` | 表格外边框 | `none` |
+| `--bt-cell-border`（及 `-top`/`-right`/`-bottom`/`-left`） | 单元格之间的网格线 | `none` |
+| `--bt-cell-bg` | 数据单元格背景 | `transparent` |
+| `--bt-header-bg` | 表头单元格背景 | 随主题默认值 |
+
+```css
+.bt-render-root {
+  --bt-header-bg: #223;
+  --bt-cell-bg: #fafafa;
+  --bt-border-outer: 2px solid #888;
+}
+```
+
+通过样式面板手动设置的单元格样式，始终优先于主题和这些变量。
+
 ---
 
 ## 功能与计划
